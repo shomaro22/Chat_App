@@ -1,0 +1,65 @@
+package repository
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type UserModel struct {
+	ID           uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Name         string
+	Email        string
+	PasswordHash string
+	Role         string
+	Active       bool
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+func (UserModel) TableName() string { return "users" }
+
+type RoomModel struct {
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Type      string
+	Name      *string
+	CreatedBy uuid.UUID `gorm:"type:uuid"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func (RoomModel) TableName() string { return "rooms" }
+
+type RoomMemberModel struct {
+	ID       uuid.UUID `gorm:"type:uuid;primaryKey"`
+	RoomID   uuid.UUID `gorm:"type:uuid"`
+	UserID   uuid.UUID `gorm:"type:uuid"`
+	JoinedAt time.Time
+	LeftAt   *time.Time
+}
+
+func (RoomMemberModel) TableName() string { return "room_members" }
+
+type MessageModel struct {
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey"`
+	RoomID    uuid.UUID `gorm:"type:uuid"`
+	SenderID  uuid.UUID `gorm:"type:uuid"`
+	Content   *string
+	ImageURL  *string `gorm:"column:image_url"`
+	IsDeleted bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt *time.Time
+}
+
+func (MessageModel) TableName() string { return "messages" }
+
+type MessageReadModel struct {
+	ID            uuid.UUID  `gorm:"type:uuid;primaryKey"`
+	RoomID        uuid.UUID  `gorm:"type:uuid"`
+	UserID        uuid.UUID  `gorm:"type:uuid"`
+	ReadMessageID *uuid.UUID `gorm:"type:uuid"`
+	ReadAt        *time.Time
+}
+
+func (MessageReadModel) TableName() string { return "message_reads" }
