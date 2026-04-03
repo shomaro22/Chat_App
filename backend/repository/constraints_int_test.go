@@ -15,10 +15,10 @@ import (
 )
 
 func TestConstraints_InvalidUserRole(t *testing.T) {
-	gdb := setupDB(t)
+	gormDB := setupDB(t)
 	ctx := context.Background()
 
-	err := gdb.WithContext(ctx).Create(&UserModel{
+	err := gormDB.WithContext(ctx).Create(&UserModel{
 		ID:           uuid.New(),
 		Name:         "x",
 		Email:        "badrole@example.com",
@@ -33,7 +33,7 @@ func TestConstraints_InvalidUserRole(t *testing.T) {
 }
 
 func TestConstraints_InvalidRoomType(t *testing.T) {
-	gdb := setupDB(t)
+	gormDB := setupDB(t)
 	ctx := context.Background()
 
 	u := &entity.User{
@@ -44,9 +44,9 @@ func TestConstraints_InvalidRoomType(t *testing.T) {
 		Role:         entity.UserRoleUser,
 		Active:       true,
 	}
-	require.NoError(t, NewUserRepository(gdb).Create(ctx, u))
+	require.NoError(t, NewUserRepository(gormDB).Create(ctx, u))
 
-	err := gdb.WithContext(ctx).Create(&RoomModel{
+	err := gormDB.WithContext(ctx).Create(&RoomModel{
 		ID:        uuid.New(),
 		Type:      "channel",
 		Name:      nil,
@@ -59,15 +59,15 @@ func TestConstraints_InvalidRoomType(t *testing.T) {
 }
 
 func TestConstraints_MessageBothEmptyRejected(t *testing.T) {
-	gdb := setupDB(t)
+	gormDB := setupDB(t)
 	ctx := context.Background()
 
 	u := &entity.User{ID: uuid.New(), Name: "u", Email: "m1@example.com", PasswordHash: "h", Role: entity.UserRoleUser, Active: true}
-	require.NoError(t, NewUserRepository(gdb).Create(ctx, u))
+	require.NoError(t, NewUserRepository(gormDB).Create(ctx, u))
 	room := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("g"), CreatedBy: u.ID}
-	require.NoError(t, NewRoomRepository(gdb).Create(ctx, room))
+	require.NoError(t, NewRoomRepository(gormDB).Create(ctx, room))
 
-	err := gdb.WithContext(ctx).Create(&MessageModel{
+	err := gormDB.WithContext(ctx).Create(&MessageModel{
 		ID:        uuid.New(),
 		RoomID:    room.ID,
 		SenderID:  u.ID,
@@ -82,16 +82,16 @@ func TestConstraints_MessageBothEmptyRejected(t *testing.T) {
 }
 
 func TestConstraints_MessageDeletedAllowsEmptyBody(t *testing.T) {
-	gdb := setupDB(t)
+	gormDB := setupDB(t)
 	ctx := context.Background()
 
 	u := &entity.User{ID: uuid.New(), Name: "u", Email: "m2@example.com", PasswordHash: "h", Role: entity.UserRoleUser, Active: true}
-	require.NoError(t, NewUserRepository(gdb).Create(ctx, u))
+	require.NoError(t, NewUserRepository(gormDB).Create(ctx, u))
 	room := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("g2"), CreatedBy: u.ID}
-	require.NoError(t, NewRoomRepository(gdb).Create(ctx, room))
+	require.NoError(t, NewRoomRepository(gormDB).Create(ctx, room))
 
 	now := time.Now().UTC()
-	err := gdb.WithContext(ctx).Create(&MessageModel{
+	err := gormDB.WithContext(ctx).Create(&MessageModel{
 		ID:        uuid.New(),
 		RoomID:    room.ID,
 		SenderID:  u.ID,
@@ -106,36 +106,36 @@ func TestConstraints_MessageDeletedAllowsEmptyBody(t *testing.T) {
 }
 
 func TestConstraints_DuplicateRoomMember(t *testing.T) {
-	gdb := setupDB(t)
+	gormDB := setupDB(t)
 	ctx := context.Background()
 
 	u := &entity.User{ID: uuid.New(), Name: "u", Email: "duprm@example.com", PasswordHash: "h", Role: entity.UserRoleUser, Active: true}
-	require.NoError(t, NewUserRepository(gdb).Create(ctx, u))
+	require.NoError(t, NewUserRepository(gormDB).Create(ctx, u))
 	room := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("g"), CreatedBy: u.ID}
-	require.NoError(t, NewRoomRepository(gdb).Create(ctx, room))
+	require.NoError(t, NewRoomRepository(gormDB).Create(ctx, room))
 
 	rm := &entity.RoomMember{ID: uuid.New(), RoomID: room.ID, UserID: u.ID}
-	require.NoError(t, NewRoomMemberRepository(gdb).Create(ctx, rm))
+	require.NoError(t, NewRoomMemberRepository(gormDB).Create(ctx, rm))
 
 	dup := &entity.RoomMember{ID: uuid.New(), RoomID: room.ID, UserID: u.ID}
-	err := NewRoomMemberRepository(gdb).Create(ctx, dup)
+	err := NewRoomMemberRepository(gormDB).Create(ctx, dup)
 	require.Error(t, err)
 	require.True(t, strings.Contains(strings.ToLower(err.Error()), "unique") || strings.Contains(strings.ToLower(err.Error()), "duplicate"))
 }
 
 func TestConstraints_DuplicateMessageReadInsert(t *testing.T) {
-	gdb := setupDB(t)
+	gormDB := setupDB(t)
 	ctx := context.Background()
 
 	u := &entity.User{ID: uuid.New(), Name: "u", Email: "dupmr@example.com", PasswordHash: "h", Role: entity.UserRoleUser, Active: true}
-	require.NoError(t, NewUserRepository(gdb).Create(ctx, u))
+	require.NoError(t, NewUserRepository(gormDB).Create(ctx, u))
 	room := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("g"), CreatedBy: u.ID}
-	require.NoError(t, NewRoomRepository(gdb).Create(ctx, room))
+	require.NoError(t, NewRoomRepository(gormDB).Create(ctx, room))
 	txt := "hi"
 	msg := &entity.Message{ID: uuid.New(), RoomID: room.ID, SenderID: u.ID, Content: &txt}
-	require.NoError(t, NewMessageRepository(gdb).Create(ctx, msg))
+	require.NoError(t, NewMessageRepository(gormDB).Create(ctx, msg))
 
-	readRepo := NewMessageReadRepository(gdb)
+	readRows := NewMessageReadRepository(gormDB)
 	now := time.Now().UTC()
 	mr1 := &entity.MessageRead{
 		ID:            uuid.New(),
@@ -144,7 +144,7 @@ func TestConstraints_DuplicateMessageReadInsert(t *testing.T) {
 		ReadMessageID: &msg.ID,
 		ReadAt:        &now,
 	}
-	require.NoError(t, readRepo.Upsert(ctx, mr1))
+	require.NoError(t, readRows.Upsert(ctx, mr1))
 
 	dup := &entity.MessageRead{
 		ID:            uuid.New(),
@@ -153,40 +153,40 @@ func TestConstraints_DuplicateMessageReadInsert(t *testing.T) {
 		ReadMessageID: &msg.ID,
 		ReadAt:        &now,
 	}
-	err := gdb.WithContext(ctx).Create(messageReadToModel(dup)).Error
+	err := gormDB.WithContext(ctx).Create(messageReadToModel(dup)).Error
 	require.Error(t, err)
 	require.True(t, strings.Contains(strings.ToLower(err.Error()), "unique") || strings.Contains(strings.ToLower(err.Error()), "duplicate"))
 }
 
 func TestConstraints_MessageReadsUpsertUpdatesRow(t *testing.T) {
-	gdb := setupDB(t)
+	gormDB := setupDB(t)
 	ctx := context.Background()
 
 	u := &entity.User{ID: uuid.New(), Name: "u", Email: "upsert@example.com", PasswordHash: "h", Role: entity.UserRoleUser, Active: true}
-	require.NoError(t, NewUserRepository(gdb).Create(ctx, u))
+	require.NoError(t, NewUserRepository(gormDB).Create(ctx, u))
 	room := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("g"), CreatedBy: u.ID}
-	require.NoError(t, NewRoomRepository(gdb).Create(ctx, room))
+	require.NoError(t, NewRoomRepository(gormDB).Create(ctx, room))
 	a, b := "a", "b"
 	m1 := &entity.Message{ID: uuid.New(), RoomID: room.ID, SenderID: u.ID, Content: &a}
 	m2 := &entity.Message{ID: uuid.New(), RoomID: room.ID, SenderID: u.ID, Content: &b}
-	require.NoError(t, NewMessageRepository(gdb).Create(ctx, m1))
-	require.NoError(t, NewMessageRepository(gdb).Create(ctx, m2))
+	require.NoError(t, NewMessageRepository(gormDB).Create(ctx, m1))
+	require.NoError(t, NewMessageRepository(gormDB).Create(ctx, m2))
 
-	readRepo := NewMessageReadRepository(gdb)
+	readRows := NewMessageReadRepository(gormDB)
 	now := time.Now().UTC()
-	require.NoError(t, readRepo.Upsert(ctx, &entity.MessageRead{
+	require.NoError(t, readRows.Upsert(ctx, &entity.MessageRead{
 		ID: uuid.New(), RoomID: room.ID, UserID: u.ID, ReadMessageID: &m1.ID, ReadAt: &now,
 	}))
-	got1, err := readRepo.FindByRoomAndUser(ctx, room.ID, u.ID)
+	got1, err := readRows.FindByRoomAndUser(ctx, room.ID, u.ID)
 	require.NoError(t, err)
 	require.NotNil(t, got1)
 	require.Equal(t, m1.ID, *got1.ReadMessageID)
 
 	now2 := time.Now().UTC()
-	require.NoError(t, readRepo.Upsert(ctx, &entity.MessageRead{
+	require.NoError(t, readRows.Upsert(ctx, &entity.MessageRead{
 		ID: got1.ID, RoomID: room.ID, UserID: u.ID, ReadMessageID: &m2.ID, ReadAt: &now2,
 	}))
-	got2, err := readRepo.FindByRoomAndUser(ctx, room.ID, u.ID)
+	got2, err := readRows.FindByRoomAndUser(ctx, room.ID, u.ID)
 	require.NoError(t, err)
 	require.NotNil(t, got2)
 	require.Equal(t, m2.ID, *got2.ReadMessageID)
