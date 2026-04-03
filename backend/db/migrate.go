@@ -12,12 +12,12 @@ import (
 //go:embed migrations
 var migrationsFS embed.FS
 
-func Up(dsn string) error {
+func Up(databaseURL string) error {
 	src, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
 		return fmt.Errorf("migrations source: %w", err)
 	}
-	m, err := migrate.NewWithSourceInstance("iofs", src, dsn)
+	m, err := migrate.NewWithSourceInstance("iofs", src, databaseURL)
 	if err != nil {
 		return fmt.Errorf("migrate new: %w", err)
 	}

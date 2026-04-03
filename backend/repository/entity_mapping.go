@@ -37,14 +37,16 @@ func userToEntity(m *UserModel) *entity.User {
 	}
 }
 
-func roomToModel(r *entity.Room) *RoomModel {
+func roomToModel(room *entity.Room) *RoomModel {
 	return &RoomModel{
-		ID:        r.ID,
-		Type:      string(r.Type),
-		Name:      copyStrPtr(r.Name),
-		CreatedBy: r.CreatedBy,
-		CreatedAt: r.CreatedAt,
-		UpdatedAt: r.UpdatedAt,
+		ID:            room.ID,
+		Type:          string(room.Type),
+		Name:          copyStrPtr(room.Name),
+		DirectUserAID: copyUUIDPtr(room.DirectUserAID),
+		DirectUserBID: copyUUIDPtr(room.DirectUserBID),
+		CreatedBy:     room.CreatedBy,
+		CreatedAt:     room.CreatedAt,
+		UpdatedAt:     room.UpdatedAt,
 	}
 }
 
@@ -53,12 +55,14 @@ func roomToEntity(m *RoomModel) *entity.Room {
 		return nil
 	}
 	return &entity.Room{
-		ID:        m.ID,
-		Type:      entity.RoomType(m.Type),
-		Name:      copyStrPtr(m.Name),
-		CreatedBy: m.CreatedBy,
-		CreatedAt: m.CreatedAt,
-		UpdatedAt: m.UpdatedAt,
+		ID:            m.ID,
+		Type:          entity.RoomType(m.Type),
+		Name:          copyStrPtr(m.Name),
+		DirectUserAID: copyUUIDPtr(m.DirectUserAID),
+		DirectUserBID: copyUUIDPtr(m.DirectUserBID),
+		CreatedBy:     m.CreatedBy,
+		CreatedAt:     m.CreatedAt,
+		UpdatedAt:     m.UpdatedAt,
 	}
 }
 

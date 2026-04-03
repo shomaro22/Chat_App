@@ -20,12 +20,14 @@ type UserModel struct {
 func (UserModel) TableName() string { return "users" }
 
 type RoomModel struct {
-	ID        uuid.UUID `gorm:"type:uuid;primaryKey"`
-	Type      string
-	Name      *string
-	CreatedBy uuid.UUID `gorm:"type:uuid"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID             uuid.UUID  `gorm:"type:uuid;primaryKey"`
+	Type           string
+	Name           *string
+	DirectUserAID  *uuid.UUID `gorm:"column:direct_user_a_id;type:uuid"`
+	DirectUserBID  *uuid.UUID `gorm:"column:direct_user_b_id;type:uuid"`
+	CreatedBy      uuid.UUID  `gorm:"type:uuid"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 func (RoomModel) TableName() string { return "rooms" }

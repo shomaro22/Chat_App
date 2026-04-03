@@ -24,21 +24,20 @@ func NewMessageReadRepository(db *gorm.DB) MessageReadRepository {
 	return &messageReadRepository{db: db}
 }
 
-// Upsert inserts or updates the read position for (room_id, user_id) using ON CONFLICT.
-func (r *messageReadRepository) Upsert(ctx context.Context, m *entity.MessageRead) error {
+func (readRows *messageReadRepository) Upsert(ctx context.Context, m *entity.MessageRead) error {
 	if m.ID == uuid.Nil {
 		m.ID = uuid.New()
 	}
 	row := messageReadToModel(m)
-	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "room_id"}, {Name: "user_id"}},
+	return readRows.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "room_id"}, {Name: "user_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{"read_message_id", "read_at"}),
 	}).Create(row).Error
 }
 
-func (r *messageReadRepository) FindByRoomAndUser(ctx context.Context, roomID, userID uuid.UUID) (*entity.MessageRead, error) {
+func (readRows *messageReadRepository) FindByRoomAndUser(ctx context.Context, roomID, userID uuid.UUID) (*entity.MessageRead, error) {
 	var row MessageReadModel
-	err := r.db.WithContext(ctx).
+	err := readRows.db.WithContext(ctx).
 		Where("room_id = ? AND user_id = ?", roomID, userID).
 		First(&row).Error
 	if err != nil {

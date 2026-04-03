@@ -9,18 +9,18 @@ import (
 )
 
 func main() {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		dsn = "postgres://postgres:postgres@localhost:5432/chatapp?sslmode=disable"
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		databaseURL = "postgres://postgres:postgres@localhost:5432/chatapp?sslmode=disable"
 	}
-	if err := db.Up(dsn); err != nil {
+	if err := db.Up(databaseURL); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
-	gdb, err := db.Open(dsn)
+	gormDB, err := db.Open(databaseURL)
 	if err != nil {
 		log.Fatalf("db open: %v", err)
 	}
-	sqlDB, err := gdb.DB()
+	sqlDB, err := gormDB.DB()
 	if err != nil {
 		log.Fatal(err)
 	}
