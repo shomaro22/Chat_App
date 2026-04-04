@@ -4,8 +4,11 @@ import (
 	"log"
 	"os"
 
+	"chat-app/controller"
 	"chat-app/db"
+	"chat-app/repository"
 	"chat-app/router"
+	"chat-app/usecase"
 )
 
 func main() {
@@ -36,7 +39,12 @@ func main() {
 	addr := ":" + port
 	log.Printf("db ok; http %s", addr)
 
-	e := router.New()
+	users := repository.NewUserRepository(gormDB)
+	rooms := repository.NewRoomRepository(gormDB)
+	members := repository.NewRoomMemberRepository(gormDB)
+	roomUC := usecase.NewRoomUseCase(gormDB, users, rooms, members)
+	roomCtl := controller.NewRoomController(roomUC)
+	e := router.New(roomCtl)
 	if err := e.Start(addr); err != nil {
 		log.Fatal(err)
 	}
