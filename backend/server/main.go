@@ -4,23 +4,26 @@ import (
 	"log"
 	"os"
 
+	"chat-app/controller"
 	"chat-app/db"
+	"chat-app/repository"
 	"chat-app/router"
+	"chat-app/usecase"
 )
 
 func main() {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		dsn = "postgres://postgres:postgres@localhost:5432/chatapp?sslmode=disable"
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		databaseURL = "postgres://postgres:postgres@localhost:5432/chatapp?sslmode=disable"
 	}
-	if err := db.Up(dsn); err != nil {
+	if err := db.Up(databaseURL); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
-	gdb, err := db.Open(dsn)
+	gormDB, err := db.Open(databaseURL)
 	if err != nil {
 		log.Fatalf("db open: %v", err)
 	}
-	sqlDB, err := gdb.DB()
+	sqlDB, err := gormDB.DB()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -36,7 +39,12 @@ func main() {
 	addr := ":" + port
 	log.Printf("db ok; http %s", addr)
 
-	e := router.New()
+	users := repository.NewUserRepository(gormDB)
+	rooms := repository.NewRoomRepository(gormDB)
+	members := repository.NewRoomMemberRepository(gormDB)
+	roomUC := usecase.NewRoomUseCase(gormDB, users, rooms, members)
+	roomCtl := controller.NewRoomController(roomUC)
+	e := router.New(roomCtl)
 	if err := e.Start(addr); err != nil {
 		log.Fatal(err)
 	}

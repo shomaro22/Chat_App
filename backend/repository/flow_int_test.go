@@ -16,37 +16,37 @@ import (
 	"gorm.io/gorm"
 )
 
-func testDSN(t *testing.T) string {
+func testDatabaseURL(t *testing.T) string {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		dsn = "postgres://postgres:postgres@localhost:5432/chatapp?sslmode=disable"
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		databaseURL = "postgres://postgres:postgres@localhost:5432/chatapp?sslmode=disable"
 	}
-	return dsn
+	return databaseURL
 }
 
 func setupDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := testDSN(t)
-	require.NoError(t, db.Up(dsn))
-	gdb, err := db.Open(dsn)
+	databaseURL := testDatabaseURL(t)
+	require.NoError(t, db.Up(databaseURL))
+	gormDB, err := db.Open(databaseURL)
 	require.NoError(t, err)
-	sqlDB, err := gdb.DB()
+	sqlDB, err := gormDB.DB()
 	require.NoError(t, err)
 	_, err = sqlDB.Exec(`TRUNCATE message_reads, messages, room_members, rooms, users RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
-	return gdb
+	return gormDB
 }
 
 func TestIntegration_Flow(t *testing.T) {
-	gdb := setupDB(t)
+	gormDB := setupDB(t)
 	ctx := context.Background()
 
-	userRepo := NewUserRepository(gdb)
-	roomRepo := NewRoomRepository(gdb)
-	memberRepo := NewRoomMemberRepository(gdb)
-	msgRepo := NewMessageRepository(gdb)
-	readRepo := NewMessageReadRepository(gdb)
+	users := NewUserRepository(gormDB)
+	rooms := NewRoomRepository(gormDB)
+	members := NewRoomMemberRepository(gormDB)
+	messages := NewMessageRepository(gormDB)
+	readRows := NewMessageReadRepository(gormDB)
 
 	u1 := &entity.User{
 		ID:           uuid.New(),
@@ -64,10 +64,10 @@ func TestIntegration_Flow(t *testing.T) {
 		Role:         entity.UserRoleUser,
 		Active:       true,
 	}
-	require.NoError(t, userRepo.Create(ctx, u1))
-	require.NoError(t, userRepo.Create(ctx, u2))
+	require.NoError(t, users.Create(ctx, u1))
+	require.NoError(t, users.Create(ctx, u2))
 
-	got1, err := userRepo.FindByEmail(ctx, "alice@example.com")
+	got1, err := users.FindByEmail(ctx, "alice@example.com")
 	require.NoError(t, err)
 	require.NotNil(t, got1)
 	require.Equal(t, u1.ID, got1.ID)
@@ -78,14 +78,14 @@ func TestIntegration_Flow(t *testing.T) {
 		Name:      strPtr("g1"),
 		CreatedBy: u1.ID,
 	}
-	require.NoError(t, roomRepo.Create(ctx, room))
+	require.NoError(t, rooms.Create(ctx, room))
 
 	rm1 := &entity.RoomMember{ID: uuid.New(), RoomID: room.ID, UserID: u1.ID}
 	rm2 := &entity.RoomMember{ID: uuid.New(), RoomID: room.ID, UserID: u2.ID}
-	require.NoError(t, memberRepo.Create(ctx, rm1))
-	require.NoError(t, memberRepo.Create(ctx, rm2))
+	require.NoError(t, members.Create(ctx, rm1))
+	require.NoError(t, members.Create(ctx, rm2))
 
-	active, err := memberRepo.FindActiveByRoomAndUser(ctx, room.ID, u1.ID)
+	active, err := members.FindActiveByRoomAndUser(ctx, room.ID, u1.ID)
 	require.NoError(t, err)
 	require.NotNil(t, active)
 	require.Nil(t, active.LeftAt)
@@ -97,7 +97,7 @@ func TestIntegration_Flow(t *testing.T) {
 		SenderID: u1.ID,
 		Content:  &txt,
 	}
-	require.NoError(t, msgRepo.Create(ctx, m1))
+	require.NoError(t, messages.Create(ctx, m1))
 
 	time.Sleep(5 * time.Millisecond)
 	m2 := &entity.Message{
@@ -106,9 +106,9 @@ func TestIntegration_Flow(t *testing.T) {
 		SenderID: u2.ID,
 		Content:  &txt,
 	}
-	require.NoError(t, msgRepo.Create(ctx, m2))
+	require.NoError(t, messages.Create(ctx, m2))
 
-	list, err := msgRepo.ListByRoomOrderByCreatedAt(ctx, room.ID, 100, 0)
+	list, err := messages.ListByRoomOrderByCreatedAt(ctx, room.ID, 100, 0)
 	require.NoError(t, err)
 	require.Len(t, list, 2)
 	require.Equal(t, m1.ID, list[0].ID)
@@ -122,9 +122,9 @@ func TestIntegration_Flow(t *testing.T) {
 		ReadMessageID: &m1.ID,
 		ReadAt:        &now,
 	}
-	require.NoError(t, readRepo.Upsert(ctx, mr))
+	require.NoError(t, readRows.Upsert(ctx, mr))
 
-	gotRead, err := readRepo.FindByRoomAndUser(ctx, room.ID, u1.ID)
+	gotRead, err := readRows.FindByRoomAndUser(ctx, room.ID, u1.ID)
 	require.NoError(t, err)
 	require.NotNil(t, gotRead)
 	require.NotNil(t, gotRead.ReadMessageID)
@@ -139,9 +139,9 @@ func TestIntegration_Flow(t *testing.T) {
 		ReadMessageID: &m2id,
 		ReadAt:        &now2,
 	}
-	require.NoError(t, readRepo.Upsert(ctx, mr2))
+	require.NoError(t, readRows.Upsert(ctx, mr2))
 
-	gotRead2, err := readRepo.FindByRoomAndUser(ctx, room.ID, u1.ID)
+	gotRead2, err := readRows.FindByRoomAndUser(ctx, room.ID, u1.ID)
 	require.NoError(t, err)
 	require.NotNil(t, gotRead2)
 	require.Equal(t, m2.ID, *gotRead2.ReadMessageID)

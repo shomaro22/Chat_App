@@ -14,12 +14,9 @@ import (
 type RoomRepository interface {
 	Create(ctx context.Context, room *entity.Room) error
 	FindByID(ctx context.Context, id uuid.UUID) (*entity.Room, error)
-	// FindByIDForActiveMember returns the room only if userID has an active membership (left_at IS NULL).
 	FindByIDForActiveMember(ctx context.Context, roomID, userID uuid.UUID) (*entity.Room, error)
-	// ListActiveByUserID returns rooms the user is currently in, newest room.updated_at first.
-	ListActiveByUserID(ctx context.Context, userID uuid.UUID, limit, offset int) ([]entity.Room, error)
-	// FindDirectRoomBetweenUsers returns a direct room where exactly userA and userB are the only active members, or nil.
-	FindDirectRoomBetweenUsers(ctx context.Context, userA, userB uuid.UUID) (*entity.Room, error)
+	ListJoinedRooms(ctx context.Context, userID uuid.UUID, limit, offset int) ([]entity.Room, error)
+	FindDirectRoomByUserPair(ctx context.Context, userA, userB uuid.UUID) (*entity.Room, error)
 }
 
 type roomRepository struct {
@@ -30,7 +27,7 @@ func NewRoomRepository(db *gorm.DB) RoomRepository {
 	return &roomRepository{db: db}
 }
 
-func (r *roomRepository) Create(ctx context.Context, room *entity.Room) error {
+func (rooms *roomRepository) Create(ctx context.Context, room *entity.Room) error {
 	if room.ID == uuid.Nil {
 		room.ID = uuid.New()
 	}
@@ -42,12 +39,12 @@ func (r *roomRepository) Create(ctx context.Context, room *entity.Room) error {
 		room.UpdatedAt = now
 	}
 	m := roomToModel(room)
-	return r.db.WithContext(ctx).Create(m).Error
+	return rooms.db.WithContext(ctx).Create(m).Error
 }
 
-func (r *roomRepository) FindByID(ctx context.Context, id uuid.UUID) (*entity.Room, error) {
+func (rooms *roomRepository) FindByID(ctx context.Context, id uuid.UUID) (*entity.Room, error) {
 	var m RoomModel
-	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+	if err := rooms.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
@@ -56,9 +53,9 @@ func (r *roomRepository) FindByID(ctx context.Context, id uuid.UUID) (*entity.Ro
 	return roomToEntity(&m), nil
 }
 
-func (r *roomRepository) FindByIDForActiveMember(ctx context.Context, roomID, userID uuid.UUID) (*entity.Room, error) {
+func (rooms *roomRepository) FindByIDForActiveMember(ctx context.Context, roomID, userID uuid.UUID) (*entity.Room, error) {
 	var m RoomModel
-	err := r.db.WithContext(ctx).
+	err := rooms.db.WithContext(ctx).
 		Table("rooms").
 		Joins("INNER JOIN room_members ON room_members.room_id = rooms.id AND room_members.user_id = ? AND room_members.left_at IS NULL", userID).
 		Where("rooms.id = ?", roomID).
@@ -72,8 +69,8 @@ func (r *roomRepository) FindByIDForActiveMember(ctx context.Context, roomID, us
 	return roomToEntity(&m), nil
 }
 
-func (r *roomRepository) ListActiveByUserID(ctx context.Context, userID uuid.UUID, limit, offset int) ([]entity.Room, error) {
-	q := r.db.WithContext(ctx).
+func (rooms *roomRepository) ListJoinedRooms(ctx context.Context, userID uuid.UUID, limit, offset int) ([]entity.Room, error) {
+	q := rooms.db.WithContext(ctx).
 		Table("rooms").
 		Select("rooms.*").
 		Joins("INNER JOIN room_members ON room_members.room_id = rooms.id AND room_members.left_at IS NULL").
@@ -98,19 +95,15 @@ func (r *roomRepository) ListActiveByUserID(ctx context.Context, userID uuid.UUI
 	return out, nil
 }
 
-func (r *roomRepository) FindDirectRoomBetweenUsers(ctx context.Context, userA, userB uuid.UUID) (*entity.Room, error) {
+func (rooms *roomRepository) FindDirectRoomByUserPair(ctx context.Context, userA, userB uuid.UUID) (*entity.Room, error) {
 	if userA == userB {
 		return nil, nil
 	}
+	a, b := entity.OrderedUserPair(userA, userB)
 	var m RoomModel
-	err := r.db.WithContext(ctx).
-		Table("rooms").
-		Select("rooms.*").
-		Joins(`INNER JOIN room_members a ON a.room_id = rooms.id AND a.user_id = ? AND a.left_at IS NULL`, userA).
-		Joins(`INNER JOIN room_members b ON b.room_id = rooms.id AND b.user_id = ? AND b.left_at IS NULL`, userB).
-		Where("rooms.type = ?", string(entity.RoomTypeDirect)).
-		Where(`(SELECT COUNT(*)::bigint FROM room_members m WHERE m.room_id = rooms.id AND m.left_at IS NULL) = 2`).
-		Limit(1).
+	err := rooms.db.WithContext(ctx).
+		Where("type = ?", string(entity.RoomTypeDirect)).
+		Where("direct_user_a_id = ? AND direct_user_b_id = ?", a, b).
 		First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
