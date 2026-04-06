@@ -13,8 +13,9 @@ import (
 
 type MessageRepository interface {
 	Create(ctx context.Context, msg *entity.Message) error
-	ListByRoomOrderByCreatedAt(ctx context.Context, roomID uuid.UUID, limit, offset int) ([]entity.Message, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*entity.Message, error)
+	ListByRoomID(ctx context.Context, roomID uuid.UUID, beforeID *uuid.UUID, limit int) ([]entity.Message, error)
+	SoftDelete(ctx context.Context, id uuid.UUID) error
 }
 
 type messageRepository struct {
@@ -40,16 +41,19 @@ func (messages *messageRepository) Create(ctx context.Context, msg *entity.Messa
 	return messages.db.WithContext(ctx).Create(row).Error
 }
 
-func (messages *messageRepository) ListByRoomOrderByCreatedAt(ctx context.Context, roomID uuid.UUID, limit, offset int) ([]entity.Message, error) {
+func (messages *messageRepository) ListByRoomID(ctx context.Context, roomID uuid.UUID, beforeID *uuid.UUID, limit int) ([]entity.Message, error) {
 	var rows []MessageModel
 	q := messages.db.WithContext(ctx).
 		Where("room_id = ?", roomID).
-		Order("created_at ASC, id ASC")
+		Order("created_at DESC, id DESC")
+	if beforeID != nil {
+		q = q.Where(
+			"(created_at, id) < (SELECT created_at, id FROM messages WHERE id = ? AND room_id = ?)",
+			*beforeID, roomID,
+		)
+	}
 	if limit > 0 {
 		q = q.Limit(limit)
-	}
-	if offset > 0 {
-		q = q.Offset(offset)
 	}
 	if err := q.Find(&rows).Error; err != nil {
 		return nil, err
@@ -72,4 +76,15 @@ func (messages *messageRepository) FindByID(ctx context.Context, id uuid.UUID) (
 		return nil, err
 	}
 	return messageToEntity(&row), nil
+}
+
+func (messages *messageRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
+	now := time.Now().UTC()
+	return messages.db.WithContext(ctx).Model(&MessageModel{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"deleted_at": now,
+			"is_deleted": true,
+			"updated_at": now,
+		}).Error
 }
