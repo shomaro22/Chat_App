@@ -108,11 +108,11 @@ func TestIntegration_Flow(t *testing.T) {
 	}
 	require.NoError(t, messages.Create(ctx, m2))
 
-	list, err := messages.ListByRoomOrderByCreatedAt(ctx, room.ID, 100, 0)
+	list, err := messages.ListByRoomID(ctx, room.ID, nil, 100)
 	require.NoError(t, err)
 	require.Len(t, list, 2)
-	require.Equal(t, m1.ID, list[0].ID)
-	require.Equal(t, m2.ID, list[1].ID)
+	require.Equal(t, m2.ID, list[0].ID)
+	require.Equal(t, m1.ID, list[1].ID)
 
 	now := time.Now().UTC()
 	mr := &entity.MessageRead{
