@@ -44,7 +44,9 @@ func main() {
 	members := repository.NewRoomMemberRepository(gormDB)
 	roomUC := usecase.NewRoomUseCase(gormDB, users, rooms, members)
 	roomCtl := controller.NewRoomController(roomUC)
-	e := router.New(roomCtl)
+	msgUC := usecase.NewMessageUseCase(repository.NewMessageRepository(gormDB), members)
+	msgCtl := controller.NewMessageController(msgUC)
+	e := router.New(roomCtl, msgCtl)
 	if err := e.Start(addr); err != nil {
 		log.Fatal(err)
 	}
