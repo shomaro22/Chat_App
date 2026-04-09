@@ -21,4 +21,11 @@ var (
 	ErrNotRoomMember        = errors.New("not active room member")
 	ErrEmptyMessage         = errors.New("message content or image is required")
 	ErrForbiddenMessageEdit = errors.New("forbidden message operation")
+
+	ErrInvalidMessageReadUserID = errors.New("invalid user id")
+	ErrInvalidMessageReadRoomID = errors.New("invalid room id")
+	ErrInvalidReadMessageID     = errors.New("invalid read message id")
+	ErrReadNotRoomMember        = errors.New("not active room member")
+	ErrReadMessageNotFound      = errors.New("read target message not found")
+	ErrReadMessageRoomMismatch  = errors.New("message does not belong to room")
 )

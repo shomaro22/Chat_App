@@ -3,17 +3,18 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"chat-app/entity"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 type MessageReadRepository interface {
-	Upsert(ctx context.Context, m *entity.MessageRead) error
 	FindByRoomAndUser(ctx context.Context, roomID, userID uuid.UUID) (*entity.MessageRead, error)
+	Create(ctx context.Context, m *entity.MessageRead) error
+	UpdateLastReadMessage(ctx context.Context, roomID, userID, messageID uuid.UUID) error
 }
 
 type messageReadRepository struct {
@@ -24,15 +25,37 @@ func NewMessageReadRepository(db *gorm.DB) MessageReadRepository {
 	return &messageReadRepository{db: db}
 }
 
-func (readRows *messageReadRepository) Upsert(ctx context.Context, m *entity.MessageRead) error {
+func (readRows *messageReadRepository) Create(ctx context.Context, m *entity.MessageRead) error {
 	if m.ID == uuid.Nil {
 		m.ID = uuid.New()
 	}
+	now := time.Now().UTC()
+	if m.CreatedAt.IsZero() {
+		m.CreatedAt = now
+	}
+	if m.UpdatedAt.IsZero() {
+		m.UpdatedAt = now
+	}
 	row := messageReadToModel(m)
-	return readRows.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "room_id"}, {Name: "user_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"read_message_id", "read_at"}),
-	}).Create(row).Error
+	return readRows.db.WithContext(ctx).Create(row).Error
+}
+
+func (readRows *messageReadRepository) UpdateLastReadMessage(ctx context.Context, roomID, userID, messageID uuid.UUID) error {
+	now := time.Now().UTC()
+	res := readRows.db.WithContext(ctx).Model(&MessageReadModel{}).
+		Where("room_id = ? AND user_id = ?", roomID, userID).
+		Updates(map[string]interface{}{
+			"read_message_id": messageID,
+			"read_at":         now,
+			"updated_at":      now,
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (readRows *messageReadRepository) FindByRoomAndUser(ctx context.Context, roomID, userID uuid.UUID) (*entity.MessageRead, error) {

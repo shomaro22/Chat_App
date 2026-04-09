@@ -9,6 +9,7 @@ import (
 	"chat-app/repository"
 	"chat-app/router"
 	"chat-app/usecase"
+	"chat-app/wshub"
 )
 
 func main() {
@@ -44,9 +45,14 @@ func main() {
 	members := repository.NewRoomMemberRepository(gormDB)
 	roomUC := usecase.NewRoomUseCase(gormDB, users, rooms, members)
 	roomCtl := controller.NewRoomController(roomUC)
-	msgUC := usecase.NewMessageUseCase(repository.NewMessageRepository(gormDB), members)
-	msgCtl := controller.NewMessageController(msgUC)
-	e := router.New(roomCtl, msgCtl)
+	hub := wshub.NewConnectionManager()
+	msgRepo := repository.NewMessageRepository(gormDB)
+	msgUC := usecase.NewMessageUseCase(msgRepo, members)
+	msgCtl := controller.NewMessageController(msgUC, hub)
+	readUC := usecase.NewMessageReadUseCase(msgRepo, repository.NewMessageReadRepository(gormDB), members)
+	readCtl := controller.NewMessageReadController(readUC)
+	wsCtl := controller.NewWSController(hub, members)
+	e := router.New(roomCtl, msgCtl, wsCtl, readCtl)
 	if err := e.Start(addr); err != nil {
 		log.Fatal(err)
 	}

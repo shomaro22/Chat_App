@@ -20,14 +20,14 @@ type UserModel struct {
 func (UserModel) TableName() string { return "users" }
 
 type RoomModel struct {
-	ID             uuid.UUID  `gorm:"type:uuid;primaryKey"`
-	Type           string
-	Name           *string
-	DirectUserAID  *uuid.UUID `gorm:"column:direct_user_a_id;type:uuid"`
-	DirectUserBID  *uuid.UUID `gorm:"column:direct_user_b_id;type:uuid"`
-	CreatedBy      uuid.UUID  `gorm:"type:uuid"`
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID            uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Type          string
+	Name          *string
+	DirectUserAID *uuid.UUID `gorm:"column:direct_user_a_id;type:uuid"`
+	DirectUserBID *uuid.UUID `gorm:"column:direct_user_b_id;type:uuid"`
+	CreatedBy     uuid.UUID  `gorm:"type:uuid"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 func (RoomModel) TableName() string { return "rooms" }
@@ -57,11 +57,13 @@ type MessageModel struct {
 func (MessageModel) TableName() string { return "messages" }
 
 type MessageReadModel struct {
-	ID            uuid.UUID  `gorm:"type:uuid;primaryKey"`
-	RoomID        uuid.UUID  `gorm:"type:uuid"`
-	UserID        uuid.UUID  `gorm:"type:uuid"`
-	ReadMessageID *uuid.UUID `gorm:"type:uuid"`
-	ReadAt        *time.Time
+	ID                uuid.UUID  `gorm:"type:uuid;primaryKey"`
+	RoomID            uuid.UUID  `gorm:"type:uuid"`
+	UserID            uuid.UUID  `gorm:"type:uuid"`
+	LastReadMessageID *uuid.UUID `gorm:"column:read_message_id;type:uuid"`
+	ReadAt            *time.Time `gorm:"column:read_at"`
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 func (MessageReadModel) TableName() string { return "message_reads" }

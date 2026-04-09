@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -8,19 +9,22 @@ import (
 
 	"chat-app/entity"
 	"chat-app/usecase"
+	"chat-app/wshub"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
 // MessageController exposes message HTTP handlers.
+// Hub is optional; when set, successful sends are broadcast to subscribed WebSocket clients for that room.
 // TODO(auth): remove sender_id from POST body and user_id from query params; derive from JWT / session.
 type MessageController struct {
 	Messages *usecase.MessageUseCase
+	Hub      *wshub.ConnectionManager
 }
 
-func NewMessageController(messages *usecase.MessageUseCase) *MessageController {
-	return &MessageController{Messages: messages}
+func NewMessageController(messages *usecase.MessageUseCase, hub *wshub.ConnectionManager) *MessageController {
+	return &MessageController{Messages: messages, Hub: hub}
 }
 
 // --- POST /rooms/:id/messages ---
@@ -93,7 +97,28 @@ func (h *MessageController) CreateMessage(c echo.Context) error {
 	if err != nil {
 		return mapMessageUsecaseError(c, err)
 	}
+	h.broadcastMessageCreated(msg)
 	return c.JSON(http.StatusCreated, createMessageResponse{Message: messageToJSON(msg)})
+}
+
+func (h *MessageController) broadcastMessageCreated(msg *entity.Message) {
+	if h.Hub == nil || msg == nil {
+		return
+	}
+	payload := struct {
+		Type    string      `json:"type"`
+		RoomID  uuid.UUID   `json:"room_id"`
+		Message messageJSON `json:"message"`
+	}{
+		Type:    "message_created",
+		RoomID:  msg.RoomID,
+		Message: messageToJSON(msg),
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	h.Hub.BroadcastToRoom(msg.RoomID, b)
 }
 
 func (h *MessageController) ListMessages(c echo.Context) error {

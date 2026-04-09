@@ -121,12 +121,19 @@ func messageToEntity(m *MessageModel) *entity.Message {
 }
 
 func messageReadToModel(m *entity.MessageRead) *MessageReadModel {
+	var readAt *time.Time
+	if !m.UpdatedAt.IsZero() {
+		t := m.UpdatedAt
+		readAt = &t
+	}
 	return &MessageReadModel{
-		ID:            m.ID,
-		RoomID:        m.RoomID,
-		UserID:        m.UserID,
-		ReadMessageID: copyUUIDPtr(m.ReadMessageID),
-		ReadAt:        copyTimePtr(m.ReadAt),
+		ID:                m.ID,
+		RoomID:            m.RoomID,
+		UserID:            m.UserID,
+		LastReadMessageID: copyUUIDPtr(m.LastReadMessageID),
+		ReadAt:            readAt,
+		CreatedAt:         m.CreatedAt,
+		UpdatedAt:         m.UpdatedAt,
 	}
 }
 
@@ -135,11 +142,12 @@ func messageReadToEntity(m *MessageReadModel) *entity.MessageRead {
 		return nil
 	}
 	return &entity.MessageRead{
-		ID:            m.ID,
-		RoomID:        m.RoomID,
-		UserID:        m.UserID,
-		ReadMessageID: copyUUIDPtr(m.ReadMessageID),
-		ReadAt:        copyTimePtr(m.ReadAt),
+		ID:                m.ID,
+		RoomID:            m.RoomID,
+		UserID:            m.UserID,
+		LastReadMessageID: copyUUIDPtr(m.LastReadMessageID),
+		CreatedAt:         m.CreatedAt,
+		UpdatedAt:         m.UpdatedAt,
 	}
 }
 
