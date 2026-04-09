@@ -33,7 +33,7 @@ func TestMessageReadUseCase_NotMember(t *testing.T) {
 	msg := &entity.Message{ID: uuid.New(), RoomID: r.ID, SenderID: u1.ID, Content: &txt}
 	require.NoError(t, repository.NewMessageRepository(gormDB).Create(ctx, msg))
 
-	err := uc.MarkAsRead(ctx, outsider.ID, r.ID, msg.ID)
+	_, err := uc.MarkAsRead(ctx, outsider.ID, r.ID, msg.ID)
 	require.ErrorIs(t, err, ErrReadNotRoomMember)
 }
 
@@ -43,7 +43,7 @@ func TestMessageReadUseCase_MessageNotFound(t *testing.T) {
 	u1, _, r := setupGroupRoomWithMembers(t, gormDB)
 	uc := newMessageReadUseCase(gormDB)
 
-	err := uc.MarkAsRead(ctx, u1.ID, r.ID, uuid.New())
+	_, err := uc.MarkAsRead(ctx, u1.ID, r.ID, uuid.New())
 	require.ErrorIs(t, err, ErrReadMessageNotFound)
 }
 
@@ -62,7 +62,7 @@ func TestMessageReadUseCase_RoomMismatch(t *testing.T) {
 	require.NoError(t, repository.NewMessageRepository(gormDB).Create(ctx, msg))
 
 	uc := newMessageReadUseCase(gormDB)
-	err := uc.MarkAsRead(ctx, u1.ID, r1.ID, msg.ID)
+	_, err := uc.MarkAsRead(ctx, u1.ID, r1.ID, msg.ID)
 	require.ErrorIs(t, err, ErrReadMessageRoomMismatch)
 }
 
@@ -75,7 +75,11 @@ func TestMessageReadUseCase_FirstRead(t *testing.T) {
 	msg := &entity.Message{ID: uuid.New(), RoomID: r.ID, SenderID: u1.ID, Content: &txt}
 	require.NoError(t, repository.NewMessageRepository(gormDB).Create(ctx, msg))
 
-	require.NoError(t, uc.MarkAsRead(ctx, u1.ID, r.ID, msg.ID))
+	res, err := uc.MarkAsRead(ctx, u1.ID, r.ID, msg.ID)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.True(t, res.Updated)
+	require.Equal(t, msg.ID, res.LastReadMessageID)
 	got, err := repository.NewMessageReadRepository(gormDB).FindByRoomAndUser(ctx, r.ID, u1.ID)
 	require.NoError(t, err)
 	require.NotNil(t, got)
@@ -98,14 +102,24 @@ func TestMessageReadUseCase_ForwardThenIdempotent(t *testing.T) {
 	m3 := &entity.Message{ID: uuid.New(), RoomID: r.ID, SenderID: u1.ID, Content: &c}
 	require.NoError(t, msgs.Create(ctx, m3))
 
-	require.NoError(t, uc.MarkAsRead(ctx, u1.ID, r.ID, m1.ID))
-	require.NoError(t, uc.MarkAsRead(ctx, u1.ID, r.ID, m3.ID))
+	res1, err := uc.MarkAsRead(ctx, u1.ID, r.ID, m1.ID)
+	require.NoError(t, err)
+	require.True(t, res1.Updated)
+	res2, err := uc.MarkAsRead(ctx, u1.ID, r.ID, m3.ID)
+	require.NoError(t, err)
+	require.True(t, res2.Updated)
+	require.Equal(t, m3.ID, res2.LastReadMessageID)
 	got, err := repository.NewMessageReadRepository(gormDB).FindByRoomAndUser(ctx, r.ID, u1.ID)
 	require.NoError(t, err)
 	require.Equal(t, m3.ID, *got.LastReadMessageID)
 
-	require.NoError(t, uc.MarkAsRead(ctx, u1.ID, r.ID, m3.ID))
-	require.NoError(t, uc.MarkAsRead(ctx, u1.ID, r.ID, m2.ID))
+	res3, err := uc.MarkAsRead(ctx, u1.ID, r.ID, m3.ID)
+	require.NoError(t, err)
+	require.NotNil(t, res3)
+	require.False(t, res3.Updated)
+	res4, err := uc.MarkAsRead(ctx, u1.ID, r.ID, m2.ID)
+	require.NoError(t, err)
+	require.False(t, res4.Updated)
 	got2, err := repository.NewMessageReadRepository(gormDB).FindByRoomAndUser(ctx, r.ID, u1.ID)
 	require.NoError(t, err)
 	require.Equal(t, m3.ID, *got2.LastReadMessageID)

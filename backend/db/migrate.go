@@ -9,7 +9,6 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
-//go:embed migrations
 var migrationsFS embed.FS
 
 func Up(databaseURL string) error {

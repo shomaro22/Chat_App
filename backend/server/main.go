@@ -50,8 +50,9 @@ func main() {
 	msgUC := usecase.NewMessageUseCase(msgRepo, members)
 	msgCtl := controller.NewMessageController(msgUC, hub)
 	readUC := usecase.NewMessageReadUseCase(msgRepo, repository.NewMessageReadRepository(gormDB), members)
-	readCtl := controller.NewMessageReadController(readUC)
-	wsCtl := controller.NewWSController(hub, members)
+	readCtl := controller.NewMessageReadController(readUC, hub)
+	presenceUC := usecase.NewPresenceUseCase(rooms)
+	wsCtl := controller.NewWSController(hub, members, presenceUC)
 	e := router.New(roomCtl, msgCtl, wsCtl, readCtl)
 	if err := e.Start(addr); err != nil {
 		log.Fatal(err)

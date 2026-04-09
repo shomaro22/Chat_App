@@ -8,7 +8,6 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// New takes room, message, WebSocket, and message-read controllers and wires them into an Echo instance.
 func New(room *controller.RoomController, messages *controller.MessageController, ws *controller.WSController, reads *controller.MessageReadController) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true

@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// MessageReadUseCase updates per-room last-read positions (forward-only).
 type MessageReadUseCase struct {
 	Messages repository.MessageRepository
 	Reads    repository.MessageReadRepository
@@ -26,40 +25,44 @@ func NewMessageReadUseCase(messages repository.MessageRepository, reads reposito
 	}
 }
 
-// MarkAsRead advances the user's read cursor to messageID when it is strictly after the current position (by created_at, then id). Backward or equal positions succeed without updating.
-func (u *MessageReadUseCase) MarkAsRead(ctx context.Context, userID, roomID, messageID uuid.UUID) error {
+type MarkAsReadResult struct {
+	Updated           bool
+	LastReadMessageID uuid.UUID
+}
+
+func (u *MessageReadUseCase) MarkAsRead(ctx context.Context, userID, roomID, messageID uuid.UUID) (*MarkAsReadResult, error) {
 	if userID == uuid.Nil {
-		return ErrInvalidMessageReadUserID
+		return nil, ErrInvalidMessageReadUserID
 	}
 	if roomID == uuid.Nil {
-		return ErrInvalidMessageReadRoomID
+		return nil, ErrInvalidMessageReadRoomID
 	}
 	if messageID == uuid.Nil {
-		return ErrInvalidReadMessageID
+		return nil, ErrInvalidReadMessageID
 	}
 
 	ok, err := u.Members.IsActiveMember(ctx, roomID, userID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !ok {
-		return ErrReadNotRoomMember
+		return nil, ErrReadNotRoomMember
 	}
 
 	target, err := u.Messages.FindByID(ctx, messageID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if target == nil {
-		return ErrReadMessageNotFound
+		return nil, ErrReadMessageNotFound
 	}
 	if target.RoomID != roomID {
-		return ErrReadMessageRoomMismatch
+		return nil, ErrReadMessageRoomMismatch
 	}
 
 	existing, err := u.Reads.FindByRoomAndUser(ctx, roomID, userID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if existing == nil {
@@ -72,29 +75,40 @@ func (u *MessageReadUseCase) MarkAsRead(ctx context.Context, userID, roomID, mes
 			CreatedAt:         now,
 			UpdatedAt:         now,
 		}
-		return u.Reads.Create(ctx, row)
+		if err := u.Reads.Create(ctx, row); err != nil {
+			return nil, err
+		}
+		return &MarkAsReadResult{Updated: true, LastReadMessageID: messageID}, nil
 	}
 
 	if existing.LastReadMessageID == nil {
-		return u.Reads.UpdateLastReadMessage(ctx, roomID, userID, messageID)
+		if err := u.Reads.UpdateLastReadMessage(ctx, roomID, userID, messageID); err != nil {
+			return nil, err
+		}
+		return &MarkAsReadResult{Updated: true, LastReadMessageID: messageID}, nil
 	}
 
 	current, err := u.Messages.FindByID(ctx, *existing.LastReadMessageID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if current == nil {
-		return u.Reads.UpdateLastReadMessage(ctx, roomID, userID, messageID)
+		if err := u.Reads.UpdateLastReadMessage(ctx, roomID, userID, messageID); err != nil {
+			return nil, err
+		}
+		return &MarkAsReadResult{Updated: true, LastReadMessageID: messageID}, nil
 	}
 
 	if !messageIsStrictlyAfter(target, current) {
-		return nil
+		return &MarkAsReadResult{Updated: false, LastReadMessageID: uuid.Nil}, nil
 	}
 
-	return u.Reads.UpdateLastReadMessage(ctx, roomID, userID, messageID)
+	if err := u.Reads.UpdateLastReadMessage(ctx, roomID, userID, messageID); err != nil {
+		return nil, err
+	}
+	return &MarkAsReadResult{Updated: true, LastReadMessageID: messageID}, nil
 }
 
-// messageIsStrictlyAfter compares by (created_at ASC, id ASC) — UUID id order is not chronological; use byte order only as tie-breaker when timestamps match.
 func messageIsStrictlyAfter(a, b *entity.Message) bool {
 	if a.CreatedAt.After(b.CreatedAt) {
 		return true
