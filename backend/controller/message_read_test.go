@@ -1,12 +1,14 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
 
 	"chat-app/usecase"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,4 +34,23 @@ func TestMessageReadUsecaseHTTP(t *testing.T) {
 			require.Equal(t, tt.err.Error(), msg)
 		}
 	}
+}
+
+func TestReadUpdatedPayloadJSON(t *testing.T) {
+	rid := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	uid := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	mid := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	b, err := json.Marshal(readUpdatedPayload{
+		Type:              "read_updated",
+		RoomID:            rid,
+		UserID:            uid,
+		LastReadMessageID: mid,
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(b, &out))
+	require.Equal(t, "read_updated", out["type"])
+	require.Equal(t, rid.String(), out["room_id"])
+	require.Equal(t, uid.String(), out["user_id"])
+	require.Equal(t, mid.String(), out["last_read_message_id"])
 }

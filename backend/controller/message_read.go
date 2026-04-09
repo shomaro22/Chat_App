@@ -1,23 +1,24 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
 	"chat-app/usecase"
+	"chat-app/wshub"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
-// MessageReadController exposes read-position HTTP handlers.
-// TODO(auth): remove user_id from body; derive from JWT / session.
 type MessageReadController struct {
 	Reads *usecase.MessageReadUseCase
+	Hub   *wshub.ConnectionManager
 }
 
-func NewMessageReadController(reads *usecase.MessageReadUseCase) *MessageReadController {
-	return &MessageReadController{Reads: reads}
+func NewMessageReadController(reads *usecase.MessageReadUseCase, hub *wshub.ConnectionManager) *MessageReadController {
+	return &MessageReadController{Reads: reads, Hub: hub}
 }
 
 type markAsReadRequest struct {
@@ -42,10 +43,37 @@ func (h *MessageReadController) MarkAsRead(c echo.Context) error {
 	if err != nil {
 		return jsonError(c, http.StatusBadRequest, "invalid message_id")
 	}
-	if err := h.Reads.MarkAsRead(c.Request().Context(), userID, roomID, messageID); err != nil {
+	result, err := h.Reads.MarkAsRead(c.Request().Context(), userID, roomID, messageID)
+	if err != nil {
 		return mapMessageReadUsecaseError(c, err)
 	}
+	if result.Updated {
+		h.broadcastReadUpdated(roomID, userID, result.LastReadMessageID)
+	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+type readUpdatedPayload struct {
+	Type              string    `json:"type"`
+	RoomID            uuid.UUID `json:"room_id"`
+	UserID            uuid.UUID `json:"user_id"`
+	LastReadMessageID uuid.UUID `json:"last_read_message_id"`
+}
+
+func (h *MessageReadController) broadcastReadUpdated(roomID, userID, lastReadMessageID uuid.UUID) {
+	if h.Hub == nil {
+		return
+	}
+	b, err := json.Marshal(readUpdatedPayload{
+		Type:              "read_updated",
+		RoomID:            roomID,
+		UserID:            userID,
+		LastReadMessageID: lastReadMessageID,
+	})
+	if err != nil {
+		return
+	}
+	h.Hub.BroadcastToRoom(roomID, b)
 }
 
 func mapMessageReadUsecaseError(c echo.Context, err error) error {

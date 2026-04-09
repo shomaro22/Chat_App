@@ -3,10 +3,12 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
 	"chat-app/repository"
+	"chat-app/usecase"
 	"chat-app/wshub"
 
 	"github.com/google/uuid"
@@ -14,22 +16,29 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// WSController handles WebSocket upgrades and room subscription. Authorization for subscribe uses
-// RoomMemberRepository (active member only). TODO(auth): derive user id from JWT instead of query.
 type WSController struct {
-	Hub     *wshub.ConnectionManager
-	Members repository.RoomMemberRepository
+	Hub      *wshub.ConnectionManager
+	Members  repository.RoomMemberRepository
+	Presence *usecase.PresenceUseCase
 }
 
-func NewWSController(hub *wshub.ConnectionManager, members repository.RoomMemberRepository) *WSController {
-	return &WSController{Hub: hub, Members: members}
+type presenceFanout interface {
+	BroadcastToUsersInRooms(roomIDs []uuid.UUID, payload []byte)
+}
+
+type joinedRoomsForPresence interface {
+	JoinedRoomIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
+}
+
+func NewWSController(hub *wshub.ConnectionManager, members repository.RoomMemberRepository, presence *usecase.PresenceUseCase) *WSController {
+	return &WSController{Hub: hub, Members: members, Presence: presence}
 }
 
 var wsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // TODO: restrict origins in production
+		return true
 	},
 }
 
@@ -50,8 +59,12 @@ type wsServerMessage struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Handle upgrades to WebSocket. Query: user_id (temporary; replace with auth).
-// Client messages: {"type":"subscribe_room","room_id":"..."}, {"type":"unsubscribe_room","room_id":"..."}.
+type presenceUpdatedPayload struct {
+	Type     string    `json:"type"`
+	UserID   uuid.UUID `json:"user_id"`
+	IsOnline bool      `json:"is_online"`
+}
+
 func (w *WSController) Handle(c echo.Context) error {
 	if w.Hub == nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "websocket hub not configured")
@@ -75,13 +88,24 @@ func (w *WSController) Handle(c echo.Context) error {
 	})
 	conn.SetReadDeadline(time.Now().Add(wsReadDeadline))
 
-	connID := w.Hub.Register(userID, conn)
+	connID, presOnConnect := w.Hub.Register(userID, conn)
+	if presOnConnect.Changed && presOnConnect.IsOnline {
+		pctx, pcancel := context.WithTimeout(context.Background(), wsDBOpTimeout)
+		broadcastPresenceUpdated(w.Hub, w.Presence, pctx, userID, true)
+		pcancel()
+	}
+
 	done := make(chan struct{})
 	go w.pingLoop(connID, done)
 
 	defer func() {
 		close(done)
-		w.Hub.RemoveConn(connID)
+		ch := w.Hub.RemoveConn(connID)
+		if ch.Changed {
+			ctx, cancel := context.WithTimeout(context.Background(), wsDBOpTimeout)
+			broadcastPresenceUpdated(w.Hub, w.Presence, ctx, ch.UserID, ch.IsOnline)
+			cancel()
+		}
 		_ = conn.Close()
 	}()
 
@@ -153,4 +177,27 @@ func (w *WSController) writeJSON(connID uuid.UUID, v any) {
 		return
 	}
 	_ = w.Hub.WriteText(connID, b)
+}
+
+func broadcastPresenceUpdated(hub presenceFanout, rooms joinedRoomsForPresence, ctx context.Context, userID uuid.UUID, isOnline bool) {
+	if hub == nil || rooms == nil {
+		return
+	}
+	roomIDs, err := rooms.JoinedRoomIDs(ctx, userID)
+	if err != nil {
+		log.Printf("presence: JoinedRoomIDs user_id=%s: %v", userID, err)
+		return
+	}
+	if len(roomIDs) == 0 {
+		return
+	}
+	b, err := json.Marshal(presenceUpdatedPayload{
+		Type:     "presence_updated",
+		UserID:   userID,
+		IsOnline: isOnline,
+	})
+	if err != nil {
+		return
+	}
+	hub.BroadcastToUsersInRooms(roomIDs, b)
 }

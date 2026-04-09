@@ -15,9 +15,6 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// MessageController exposes message HTTP handlers.
-// Hub is optional; when set, successful sends are broadcast to subscribed WebSocket clients for that room.
-// TODO(auth): remove sender_id from POST body and user_id from query params; derive from JWT / session.
 type MessageController struct {
 	Messages *usecase.MessageUseCase
 	Hub      *wshub.ConnectionManager
