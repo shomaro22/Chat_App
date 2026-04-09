@@ -116,35 +116,27 @@ func TestIntegration_Flow(t *testing.T) {
 
 	now := time.Now().UTC()
 	mr := &entity.MessageRead{
-		ID:            uuid.New(),
-		RoomID:        room.ID,
-		UserID:        u1.ID,
-		ReadMessageID: &m1.ID,
-		ReadAt:        &now,
+		ID:                uuid.New(),
+		RoomID:            room.ID,
+		UserID:            u1.ID,
+		LastReadMessageID: &m1.ID,
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
-	require.NoError(t, readRows.Upsert(ctx, mr))
+	require.NoError(t, readRows.Create(ctx, mr))
 
 	gotRead, err := readRows.FindByRoomAndUser(ctx, room.ID, u1.ID)
 	require.NoError(t, err)
 	require.NotNil(t, gotRead)
-	require.NotNil(t, gotRead.ReadMessageID)
-	require.Equal(t, m1.ID, *gotRead.ReadMessageID)
+	require.NotNil(t, gotRead.LastReadMessageID)
+	require.Equal(t, m1.ID, *gotRead.LastReadMessageID)
 
-	m2id := m2.ID
-	now2 := time.Now().UTC()
-	mr2 := &entity.MessageRead{
-		ID:            gotRead.ID,
-		RoomID:        room.ID,
-		UserID:        u1.ID,
-		ReadMessageID: &m2id,
-		ReadAt:        &now2,
-	}
-	require.NoError(t, readRows.Upsert(ctx, mr2))
+	require.NoError(t, readRows.UpdateLastReadMessage(ctx, room.ID, u1.ID, m2.ID))
 
 	gotRead2, err := readRows.FindByRoomAndUser(ctx, room.ID, u1.ID)
 	require.NoError(t, err)
 	require.NotNil(t, gotRead2)
-	require.Equal(t, m2.ID, *gotRead2.ReadMessageID)
+	require.Equal(t, m2.ID, *gotRead2.LastReadMessageID)
 }
 
 func strPtr(s string) *string { return &s }

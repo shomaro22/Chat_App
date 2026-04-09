@@ -138,27 +138,29 @@ func TestConstraints_DuplicateMessageReadInsert(t *testing.T) {
 	readRows := NewMessageReadRepository(gormDB)
 	now := time.Now().UTC()
 	mr1 := &entity.MessageRead{
-		ID:            uuid.New(),
-		RoomID:        room.ID,
-		UserID:        u.ID,
-		ReadMessageID: &msg.ID,
-		ReadAt:        &now,
+		ID:                uuid.New(),
+		RoomID:            room.ID,
+		UserID:            u.ID,
+		LastReadMessageID: &msg.ID,
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
-	require.NoError(t, readRows.Upsert(ctx, mr1))
+	require.NoError(t, readRows.Create(ctx, mr1))
 
 	dup := &entity.MessageRead{
-		ID:            uuid.New(),
-		RoomID:        room.ID,
-		UserID:        u.ID,
-		ReadMessageID: &msg.ID,
-		ReadAt:        &now,
+		ID:                uuid.New(),
+		RoomID:            room.ID,
+		UserID:            u.ID,
+		LastReadMessageID: &msg.ID,
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
 	err := gormDB.WithContext(ctx).Create(messageReadToModel(dup)).Error
 	require.Error(t, err)
 	require.True(t, strings.Contains(strings.ToLower(err.Error()), "unique") || strings.Contains(strings.ToLower(err.Error()), "duplicate"))
 }
 
-func TestConstraints_MessageReadsUpsertUpdatesRow(t *testing.T) {
+func TestConstraints_MessageReadsCreateAndUpdate(t *testing.T) {
 	gormDB := setupDB(t)
 	ctx := context.Background()
 
@@ -174,20 +176,17 @@ func TestConstraints_MessageReadsUpsertUpdatesRow(t *testing.T) {
 
 	readRows := NewMessageReadRepository(gormDB)
 	now := time.Now().UTC()
-	require.NoError(t, readRows.Upsert(ctx, &entity.MessageRead{
-		ID: uuid.New(), RoomID: room.ID, UserID: u.ID, ReadMessageID: &m1.ID, ReadAt: &now,
+	require.NoError(t, readRows.Create(ctx, &entity.MessageRead{
+		ID: uuid.New(), RoomID: room.ID, UserID: u.ID, LastReadMessageID: &m1.ID, CreatedAt: now, UpdatedAt: now,
 	}))
 	got1, err := readRows.FindByRoomAndUser(ctx, room.ID, u.ID)
 	require.NoError(t, err)
 	require.NotNil(t, got1)
-	require.Equal(t, m1.ID, *got1.ReadMessageID)
+	require.Equal(t, m1.ID, *got1.LastReadMessageID)
 
-	now2 := time.Now().UTC()
-	require.NoError(t, readRows.Upsert(ctx, &entity.MessageRead{
-		ID: got1.ID, RoomID: room.ID, UserID: u.ID, ReadMessageID: &m2.ID, ReadAt: &now2,
-	}))
+	require.NoError(t, readRows.UpdateLastReadMessage(ctx, room.ID, u.ID, m2.ID))
 	got2, err := readRows.FindByRoomAndUser(ctx, room.ID, u.ID)
 	require.NoError(t, err)
 	require.NotNil(t, got2)
-	require.Equal(t, m2.ID, *got2.ReadMessageID)
+	require.Equal(t, m2.ID, *got2.LastReadMessageID)
 }
