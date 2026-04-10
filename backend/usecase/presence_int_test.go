@@ -5,6 +5,7 @@ package usecase
 import (
 	"context"
 	"testing"
+	"time"
 
 	"chat-app/entity"
 	"chat-app/repository"
@@ -21,13 +22,14 @@ func TestPresenceUseCase_JoinedRoomIDs_ActiveMembersOnly(t *testing.T) {
 	rooms := repository.NewRoomRepository(gormDB)
 	members := repository.NewRoomMemberRepository(gormDB)
 
-	r1 := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("A"), CreatedBy: u1.ID}
-	r2 := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("B"), CreatedBy: u1.ID}
+	prNow := time.Now().UTC()
+	r1 := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("A"), CreatedBy: u1.ID, CreatedAt: prNow, UpdatedAt: prNow}
+	r2 := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("B"), CreatedBy: u1.ID, CreatedAt: prNow, UpdatedAt: prNow}
 	require.NoError(t, rooms.Create(ctx, r1))
 	require.NoError(t, rooms.Create(ctx, r2))
-	require.NoError(t, members.AddMember(ctx, r1.ID, u1.ID))
-	require.NoError(t, members.AddMember(ctx, r2.ID, u1.ID))
-	require.NoError(t, members.AddMember(ctx, r2.ID, u2.ID))
+	require.NoError(t, members.Create(ctx, &entity.RoomMember{ID: uuid.New(), RoomID: r1.ID, UserID: u1.ID, JoinedAt: prNow}))
+	require.NoError(t, members.Create(ctx, &entity.RoomMember{ID: uuid.New(), RoomID: r2.ID, UserID: u1.ID, JoinedAt: prNow}))
+	require.NoError(t, members.Create(ctx, &entity.RoomMember{ID: uuid.New(), RoomID: r2.ID, UserID: u2.ID, JoinedAt: prNow}))
 
 	uc := NewPresenceUseCase(rooms)
 	ids, err := uc.JoinedRoomIDs(ctx, u1.ID)
@@ -47,9 +49,10 @@ func TestPresenceUseCase_JoinedRoomIDs_ExcludesNonMember(t *testing.T) {
 	u1 := testUser(t, gormDB, "pnm@example.com")
 	rooms := repository.NewRoomRepository(gormDB)
 	members := repository.NewRoomMemberRepository(gormDB)
-	r := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("X"), CreatedBy: u1.ID}
+	xNow := time.Now().UTC()
+	r := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("X"), CreatedBy: u1.ID, CreatedAt: xNow, UpdatedAt: xNow}
 	require.NoError(t, rooms.Create(ctx, r))
-	require.NoError(t, members.AddMember(ctx, r.ID, u1.ID))
+	require.NoError(t, members.Create(ctx, &entity.RoomMember{ID: uuid.New(), RoomID: r.ID, UserID: u1.ID, JoinedAt: xNow}))
 
 	uc := NewPresenceUseCase(rooms)
 	outsider := testUser(t, gormDB, "out@example.com")

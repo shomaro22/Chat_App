@@ -7,13 +7,15 @@ import (
 )
 
 type Message struct {
-	ID        uuid.UUID
-	RoomID    uuid.UUID
-	SenderID  uuid.UUID
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey"`
+	RoomID    uuid.UUID `gorm:"type:uuid;not null"`
+	SenderID  uuid.UUID `gorm:"type:uuid;not null"`
 	Content   *string
-	ImageURL  *string
-	IsDeleted bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ImageURL  *string    `gorm:"column:image_url"`
+	IsDeleted bool       `gorm:"not null"`
+	CreatedAt time.Time  `gorm:"not null"`
+	UpdatedAt time.Time  `gorm:"not null"`
 	DeletedAt *time.Time
 }
+
+func (Message) TableName() string { return "messages" }

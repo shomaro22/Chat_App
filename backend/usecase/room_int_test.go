@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"chat-app/db"
 	"chat-app/entity"
@@ -39,6 +40,7 @@ func testUser(t *testing.T, gormDB *gorm.DB, email string) *entity.User {
 func testUserActive(t *testing.T, gormDB *gorm.DB, email string, active bool) *entity.User {
 	t.Helper()
 	ctx := context.Background()
+	now := time.Now().UTC()
 	u := &entity.User{
 		ID:           uuid.New(),
 		Name:         email,
@@ -46,6 +48,8 @@ func testUserActive(t *testing.T, gormDB *gorm.DB, email string, active bool) *e
 		PasswordHash: "x",
 		Role:         entity.UserRoleUser,
 		Active:       active,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	require.NoError(t, repository.NewUserRepository(gormDB).Create(ctx, u))
 	return u
@@ -68,9 +72,10 @@ func TestRoomUseCase_GetJoinedRooms_OK(t *testing.T) {
 	rooms := repository.NewRoomRepository(gormDB)
 	members := repository.NewRoomMemberRepository(gormDB)
 
-	r := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("G"), CreatedBy: u1.ID}
+	rNow := time.Now().UTC()
+	r := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("G"), CreatedBy: u1.ID, CreatedAt: rNow, UpdatedAt: rNow}
 	require.NoError(t, rooms.Create(ctx, r))
-	require.NoError(t, members.AddMember(ctx, r.ID, u1.ID))
+	require.NoError(t, members.Create(ctx, &entity.RoomMember{ID: uuid.New(), RoomID: r.ID, UserID: u1.ID, JoinedAt: rNow}))
 
 	list, err := useCase.GetJoinedRooms(ctx, u1.ID)
 	require.NoError(t, err)
@@ -96,13 +101,15 @@ func TestRoomUseCase_CreateOrGetDirectRoom_Existing(t *testing.T) {
 	members := repository.NewRoomMemberRepository(gormDB)
 
 	pa, pb := entity.OrderedUserPair(a.ID, b.ID)
+	dmNow := time.Now().UTC()
 	dm := &entity.Room{
 		ID: uuid.New(), Type: entity.RoomTypeDirect, Name: nil, CreatedBy: a.ID,
 		DirectUserAID: &pa, DirectUserBID: &pb,
+		CreatedAt: dmNow, UpdatedAt: dmNow,
 	}
 	require.NoError(t, rooms.Create(ctx, dm))
-	require.NoError(t, members.AddMember(ctx, dm.ID, a.ID))
-	require.NoError(t, members.AddMember(ctx, dm.ID, b.ID))
+	require.NoError(t, members.Create(ctx, &entity.RoomMember{ID: uuid.New(), RoomID: dm.ID, UserID: a.ID, JoinedAt: dmNow}))
+	require.NoError(t, members.Create(ctx, &entity.RoomMember{ID: uuid.New(), RoomID: dm.ID, UserID: b.ID, JoinedAt: dmNow}))
 
 	got, err := useCase.CreateOrGetDirectRoom(ctx, a.ID, b.ID)
 	require.NoError(t, err)

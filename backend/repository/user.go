@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"errors"
-	"time"
 
 	"chat-app/entity"
 
@@ -27,40 +26,29 @@ func NewUserRepository(db *gorm.DB) UserRepository {
 }
 
 func (users *userRepository) Create(ctx context.Context, u *entity.User) error {
-	if u.ID == uuid.Nil {
-		u.ID = uuid.New()
-	}
-	now := time.Now().UTC()
-	if u.CreatedAt.IsZero() {
-		u.CreatedAt = now
-	}
-	if u.UpdatedAt.IsZero() {
-		u.UpdatedAt = now
-	}
-	m := userToModel(u)
-	return users.db.WithContext(ctx).Create(m).Error
+	return users.db.WithContext(ctx).Create(u).Error
 }
 
 func (users *userRepository) FindByID(ctx context.Context, id uuid.UUID) (*entity.User, error) {
-	var m UserModel
+	var m entity.User
 	if err := users.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return userToEntity(&m), nil
+	return &m, nil
 }
 
 func (users *userRepository) FindByEmail(ctx context.Context, email string) (*entity.User, error) {
-	var m UserModel
+	var m entity.User
 	if err := users.db.WithContext(ctx).Where("email = ?", email).First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return userToEntity(&m), nil
+	return &m, nil
 }
 
 func (users *userRepository) FindByIDs(ctx context.Context, ids []uuid.UUID) ([]entity.User, error) {
@@ -68,17 +56,11 @@ func (users *userRepository) FindByIDs(ctx context.Context, ids []uuid.UUID) ([]
 	if len(uniq) == 0 {
 		return nil, nil
 	}
-	var models []UserModel
-	if err := users.db.WithContext(ctx).Where("id IN ?", uniq).Find(&models).Error; err != nil {
+	var usersRows []entity.User
+	if err := users.db.WithContext(ctx).Where("id IN ?", uniq).Find(&usersRows).Error; err != nil {
 		return nil, err
 	}
-	out := make([]entity.User, 0, len(models))
-	for i := range models {
-		if e := userToEntity(&models[i]); e != nil {
-			out = append(out, *e)
-		}
-	}
-	return out, nil
+	return usersRows, nil
 }
 
 func uniqueUserIDs(ids []uuid.UUID) []uuid.UUID {

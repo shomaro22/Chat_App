@@ -7,12 +7,14 @@ import (
 )
 
 type Room struct {
-	ID            uuid.UUID
-	Type          RoomType
+	ID            uuid.UUID  `gorm:"type:uuid;primaryKey"`
+	Type          RoomType   `gorm:"not null"`
 	Name          *string
-	DirectUserAID *uuid.UUID
-	DirectUserBID *uuid.UUID
-	CreatedBy     uuid.UUID
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	DirectUserAID *uuid.UUID `gorm:"column:direct_user_a_id;type:uuid"`
+	DirectUserBID *uuid.UUID `gorm:"column:direct_user_b_id;type:uuid"`
+	CreatedBy     uuid.UUID  `gorm:"type:uuid;not null"`
+	CreatedAt     time.Time  `gorm:"not null"`
+	UpdatedAt     time.Time  `gorm:"not null"`
 }
+
+func (Room) TableName() string { return "rooms" }
