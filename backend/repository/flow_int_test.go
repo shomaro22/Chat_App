@@ -48,6 +48,7 @@ func TestIntegration_Flow(t *testing.T) {
 	messages := NewMessageRepository(gormDB)
 	readRows := NewMessageReadRepository(gormDB)
 
+	nowUser := time.Now().UTC()
 	u1 := &entity.User{
 		ID:           uuid.New(),
 		Name:         "Alice",
@@ -55,6 +56,8 @@ func TestIntegration_Flow(t *testing.T) {
 		PasswordHash: "hash",
 		Role:         entity.UserRoleUser,
 		Active:       true,
+		CreatedAt:    nowUser,
+		UpdatedAt:    nowUser,
 	}
 	u2 := &entity.User{
 		ID:           uuid.New(),
@@ -63,6 +66,8 @@ func TestIntegration_Flow(t *testing.T) {
 		PasswordHash: "hash",
 		Role:         entity.UserRoleUser,
 		Active:       true,
+		CreatedAt:    nowUser,
+		UpdatedAt:    nowUser,
 	}
 	require.NoError(t, users.Create(ctx, u1))
 	require.NoError(t, users.Create(ctx, u2))
@@ -72,16 +77,19 @@ func TestIntegration_Flow(t *testing.T) {
 	require.NotNil(t, got1)
 	require.Equal(t, u1.ID, got1.ID)
 
+	roomNow := time.Now().UTC()
 	room := &entity.Room{
 		ID:        uuid.New(),
 		Type:      entity.RoomTypeGroup,
 		Name:      strPtr("g1"),
 		CreatedBy: u1.ID,
+		CreatedAt: roomNow,
+		UpdatedAt: roomNow,
 	}
 	require.NoError(t, rooms.Create(ctx, room))
 
-	rm1 := &entity.RoomMember{ID: uuid.New(), RoomID: room.ID, UserID: u1.ID}
-	rm2 := &entity.RoomMember{ID: uuid.New(), RoomID: room.ID, UserID: u2.ID}
+	rm1 := &entity.RoomMember{ID: uuid.New(), RoomID: room.ID, UserID: u1.ID, JoinedAt: roomNow}
+	rm2 := &entity.RoomMember{ID: uuid.New(), RoomID: room.ID, UserID: u2.ID, JoinedAt: roomNow}
 	require.NoError(t, members.Create(ctx, rm1))
 	require.NoError(t, members.Create(ctx, rm2))
 
@@ -91,20 +99,26 @@ func TestIntegration_Flow(t *testing.T) {
 	require.Nil(t, active.LeftAt)
 
 	txt := "hello"
+	msgNow := time.Now().UTC()
 	m1 := &entity.Message{
-		ID:       uuid.New(),
-		RoomID:   room.ID,
-		SenderID: u1.ID,
-		Content:  &txt,
+		ID:        uuid.New(),
+		RoomID:    room.ID,
+		SenderID:  u1.ID,
+		Content:   &txt,
+		CreatedAt: msgNow,
+		UpdatedAt: msgNow,
 	}
 	require.NoError(t, messages.Create(ctx, m1))
 
 	time.Sleep(5 * time.Millisecond)
+	msgNow2 := time.Now().UTC()
 	m2 := &entity.Message{
-		ID:       uuid.New(),
-		RoomID:   room.ID,
-		SenderID: u2.ID,
-		Content:  &txt,
+		ID:        uuid.New(),
+		RoomID:    room.ID,
+		SenderID:  u2.ID,
+		Content:   &txt,
+		CreatedAt: msgNow2,
+		UpdatedAt: msgNow2,
 	}
 	require.NoError(t, messages.Create(ctx, m2))
 
@@ -120,6 +134,7 @@ func TestIntegration_Flow(t *testing.T) {
 		RoomID:            room.ID,
 		UserID:            u1.ID,
 		LastReadMessageID: &m1.ID,
+		ReadAt:            &now,
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}

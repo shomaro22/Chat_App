@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"errors"
-	"time"
 
 	"chat-app/entity"
 
@@ -28,33 +27,22 @@ func NewRoomRepository(db *gorm.DB) RoomRepository {
 }
 
 func (rooms *roomRepository) Create(ctx context.Context, room *entity.Room) error {
-	if room.ID == uuid.Nil {
-		room.ID = uuid.New()
-	}
-	now := time.Now().UTC()
-	if room.CreatedAt.IsZero() {
-		room.CreatedAt = now
-	}
-	if room.UpdatedAt.IsZero() {
-		room.UpdatedAt = now
-	}
-	m := roomToModel(room)
-	return rooms.db.WithContext(ctx).Create(m).Error
+	return rooms.db.WithContext(ctx).Create(room).Error
 }
 
 func (rooms *roomRepository) FindByID(ctx context.Context, id uuid.UUID) (*entity.Room, error) {
-	var m RoomModel
+	var m entity.Room
 	if err := rooms.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return roomToEntity(&m), nil
+	return &m, nil
 }
 
 func (rooms *roomRepository) FindByIDForActiveMember(ctx context.Context, roomID, userID uuid.UUID) (*entity.Room, error) {
-	var m RoomModel
+	var m entity.Room
 	err := rooms.db.WithContext(ctx).
 		Table("rooms").
 		Joins("INNER JOIN room_members ON room_members.room_id = rooms.id AND room_members.user_id = ? AND room_members.left_at IS NULL", userID).
@@ -66,7 +54,7 @@ func (rooms *roomRepository) FindByIDForActiveMember(ctx context.Context, roomID
 		}
 		return nil, err
 	}
-	return roomToEntity(&m), nil
+	return &m, nil
 }
 
 func (rooms *roomRepository) ListJoinedRooms(ctx context.Context, userID uuid.UUID, limit, offset int) ([]entity.Room, error) {
@@ -82,17 +70,11 @@ func (rooms *roomRepository) ListJoinedRooms(ctx context.Context, userID uuid.UU
 	if offset > 0 {
 		q = q.Offset(offset)
 	}
-	var rows []RoomModel
+	var rows []entity.Room
 	if err := q.Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	out := make([]entity.Room, 0, len(rows))
-	for i := range rows {
-		if e := roomToEntity(&rows[i]); e != nil {
-			out = append(out, *e)
-		}
-	}
-	return out, nil
+	return rows, nil
 }
 
 func (rooms *roomRepository) FindDirectRoomByUserPair(ctx context.Context, userA, userB uuid.UUID) (*entity.Room, error) {
@@ -100,7 +82,7 @@ func (rooms *roomRepository) FindDirectRoomByUserPair(ctx context.Context, userA
 		return nil, nil
 	}
 	a, b := entity.OrderedUserPair(userA, userB)
-	var m RoomModel
+	var m entity.Room
 	err := rooms.db.WithContext(ctx).
 		Where("type = ?", string(entity.RoomTypeDirect)).
 		Where("direct_user_a_id = ? AND direct_user_b_id = ?", a, b).
@@ -111,5 +93,5 @@ func (rooms *roomRepository) FindDirectRoomByUserPair(ctx context.Context, userA
 		}
 		return nil, err
 	}
-	return roomToEntity(&m), nil
+	return &m, nil
 }

@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"strings"
+	"time"
 
 	"chat-app/entity"
 	"chat-app/repository"
@@ -92,19 +93,23 @@ func (useCase *RoomUseCase) CreateOrGetDirectRoom(ctx context.Context, userID, t
 			return nil
 		}
 
+		now := time.Now().UTC()
 		room := &entity.Room{
+			ID:            uuid.New(),
 			Type:          entity.RoomTypeDirect,
 			Name:          nil,
 			DirectUserAID: uuidPtr(pairA),
 			DirectUserBID: uuidPtr(pairB),
 			CreatedBy:     userID,
+			CreatedAt:     now,
+			UpdatedAt:     now,
 		}
 		if err := rooms.Create(ctx, room); err != nil {
 			return err
 		}
 		batch := []entity.RoomMember{
-			{ID: uuid.New(), RoomID: room.ID, UserID: userID},
-			{ID: uuid.New(), RoomID: room.ID, UserID: targetUserID},
+			{ID: uuid.New(), RoomID: room.ID, UserID: userID, JoinedAt: now},
+			{ID: uuid.New(), RoomID: room.ID, UserID: targetUserID, JoinedAt: now},
 		}
 		if err := members.CreateBulk(ctx, batch); err != nil {
 			return err
@@ -170,10 +175,14 @@ func (useCase *RoomUseCase) CreateGroupRoom(ctx context.Context, createdBy uuid.
 		rooms := repository.NewRoomRepository(transaction)
 		members := repository.NewRoomMemberRepository(transaction)
 		n := name
+		now := time.Now().UTC()
 		room := &entity.Room{
+			ID:        uuid.New(),
 			Type:      entity.RoomTypeGroup,
 			Name:      &n,
 			CreatedBy: createdBy,
+			CreatedAt: now,
+			UpdatedAt: now,
 		}
 		if err := rooms.Create(ctx, room); err != nil {
 			return err
@@ -181,9 +190,10 @@ func (useCase *RoomUseCase) CreateGroupRoom(ctx context.Context, createdBy uuid.
 		batch := make([]entity.RoomMember, 0, len(participantIDs))
 		for _, uid := range participantIDs {
 			batch = append(batch, entity.RoomMember{
-				ID:     uuid.New(),
-				RoomID: room.ID,
-				UserID: uid,
+				ID:       uuid.New(),
+				RoomID:   room.ID,
+				UserID:   uid,
+				JoinedAt: now,
 			})
 		}
 		if err := members.CreateBulk(ctx, batch); err != nil {

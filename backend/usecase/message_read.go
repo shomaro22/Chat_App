@@ -72,6 +72,7 @@ func (u *MessageReadUseCase) MarkAsRead(ctx context.Context, userID, roomID, mes
 			RoomID:            roomID,
 			UserID:            userID,
 			LastReadMessageID: &messageID,
+			ReadAt:            &now,
 			CreatedAt:         now,
 			UpdatedAt:         now,
 		}

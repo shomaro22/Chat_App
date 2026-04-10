@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"strings"
+	"time"
 
 	"chat-app/entity"
 	"chat-app/repository"
@@ -57,12 +58,16 @@ func (u *MessageUseCase) SendMessage(ctx context.Context, roomID, senderID uuid.
 	if !ok {
 		return nil, ErrNotRoomMember
 	}
+	now := time.Now().UTC()
 	msg := &entity.Message{
+		ID:        uuid.New(),
 		RoomID:    roomID,
 		SenderID:  senderID,
 		Content:   content,
 		ImageURL:  imageURL,
 		IsDeleted: false,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 	if err := u.MessageRepo.Create(ctx, msg); err != nil {
 		return nil, err
@@ -121,5 +126,5 @@ func (u *MessageUseCase) DeleteMessage(ctx context.Context, messageID, userID uu
 	if msg.SenderID != userID {
 		return ErrForbiddenMessageEdit
 	}
-	return u.MessageRepo.SoftDelete(ctx, messageID)
+	return u.MessageRepo.SoftDelete(ctx, messageID, time.Now().UTC())
 }

@@ -26,23 +26,12 @@ func NewMessageReadRepository(db *gorm.DB) MessageReadRepository {
 }
 
 func (readRows *messageReadRepository) Create(ctx context.Context, m *entity.MessageRead) error {
-	if m.ID == uuid.Nil {
-		m.ID = uuid.New()
-	}
-	now := time.Now().UTC()
-	if m.CreatedAt.IsZero() {
-		m.CreatedAt = now
-	}
-	if m.UpdatedAt.IsZero() {
-		m.UpdatedAt = now
-	}
-	row := messageReadToModel(m)
-	return readRows.db.WithContext(ctx).Create(row).Error
+	return readRows.db.WithContext(ctx).Create(m).Error
 }
 
 func (readRows *messageReadRepository) UpdateLastReadMessage(ctx context.Context, roomID, userID, messageID uuid.UUID) error {
 	now := time.Now().UTC()
-	res := readRows.db.WithContext(ctx).Model(&MessageReadModel{}).
+	res := readRows.db.WithContext(ctx).Model(&entity.MessageRead{}).
 		Where("room_id = ? AND user_id = ?", roomID, userID).
 		Updates(map[string]interface{}{
 			"read_message_id": messageID,
@@ -59,7 +48,7 @@ func (readRows *messageReadRepository) UpdateLastReadMessage(ctx context.Context
 }
 
 func (readRows *messageReadRepository) FindByRoomAndUser(ctx context.Context, roomID, userID uuid.UUID) (*entity.MessageRead, error) {
-	var row MessageReadModel
+	var row entity.MessageRead
 	err := readRows.db.WithContext(ctx).
 		Where("room_id = ? AND user_id = ?", roomID, userID).
 		First(&row).Error
@@ -69,5 +58,5 @@ func (readRows *messageReadRepository) FindByRoomAndUser(ctx context.Context, ro
 		}
 		return nil, err
 	}
-	return messageReadToEntity(&row), nil
+	return &row, nil
 }

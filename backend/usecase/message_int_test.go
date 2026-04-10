@@ -29,10 +29,11 @@ func setupGroupRoomWithMembers(t *testing.T, gormDB *gorm.DB) (*entity.User, *en
 	u2 := testUser(t, gormDB, "msgu2@example.com")
 	rooms := repository.NewRoomRepository(gormDB)
 	members := repository.NewRoomMemberRepository(gormDB)
-	r := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("G"), CreatedBy: u1.ID}
+	rNow := time.Now().UTC()
+	r := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("G"), CreatedBy: u1.ID, CreatedAt: rNow, UpdatedAt: rNow}
 	require.NoError(t, rooms.Create(ctx, r))
-	require.NoError(t, members.AddMember(ctx, r.ID, u1.ID))
-	require.NoError(t, members.AddMember(ctx, r.ID, u2.ID))
+	require.NoError(t, members.Create(ctx, &entity.RoomMember{ID: uuid.New(), RoomID: r.ID, UserID: u1.ID, JoinedAt: rNow}))
+	require.NoError(t, members.Create(ctx, &entity.RoomMember{ID: uuid.New(), RoomID: r.ID, UserID: u2.ID, JoinedAt: rNow}))
 	return u1, u2, r
 }
 
@@ -117,7 +118,7 @@ func TestMessageUseCase_ListMessages_DeletedIncluded(t *testing.T) {
 
 	m, err := uc.SendMessage(ctx, r.ID, u1.ID, strPtr("x"), nil)
 	require.NoError(t, err)
-	require.NoError(t, msgRepo.SoftDelete(ctx, m.ID))
+	require.NoError(t, msgRepo.SoftDelete(ctx, m.ID, time.Now().UTC()))
 
 	list, err := uc.ListMessages(ctx, r.ID, u1.ID, nil, 10)
 	require.NoError(t, err)
