@@ -18,13 +18,15 @@ type RoomMemberRepository interface {
 	ListActiveMembers(ctx context.Context, roomID uuid.UUID) ([]entity.RoomMember, error)
 	CreateBulk(ctx context.Context, members []entity.RoomMember) error
 	CountActiveByRoomID(ctx context.Context, roomID uuid.UUID) (int64, error)
-	Leave(ctx context.Context, roomID, userID uuid.UUID) error
+	// Leave は指定ユーザーの left_at を更新して退室（論理）とする。leftAt はユースケース側で決める。
+	Leave(ctx context.Context, roomID, userID uuid.UUID, leftAt time.Time) error
 }
 
 type roomMemberRepository struct {
 	db *gorm.DB
 }
 
+// NewRoomMemberRepository はルームメンバー永続化用リポジトリを返す。
 func NewRoomMemberRepository(db *gorm.DB) RoomMemberRepository {
 	return &roomMemberRepository{db: db}
 }
@@ -88,11 +90,10 @@ func (members *roomMemberRepository) CountActiveByRoomID(ctx context.Context, ro
 	return n, err
 }
 
-func (members *roomMemberRepository) Leave(ctx context.Context, roomID, userID uuid.UUID) error {
-	now := time.Now().UTC()
+func (members *roomMemberRepository) Leave(ctx context.Context, roomID, userID uuid.UUID, leftAt time.Time) error {
 	res := members.db.WithContext(ctx).Model(&entity.RoomMember{}).
 		Where("room_id = ? AND user_id = ? AND left_at IS NULL", roomID, userID).
-		Update("left_at", now)
+		Update("left_at", leftAt)
 	if res.Error != nil {
 		return res.Error
 	}

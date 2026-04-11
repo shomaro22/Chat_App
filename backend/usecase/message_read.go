@@ -25,11 +25,13 @@ func NewMessageReadUseCase(messages repository.MessageRepository, reads reposito
 	}
 }
 
+// MarkAsReadResult は既読更新の結果（更新の有無と最終既読メッセージ ID）。
 type MarkAsReadResult struct {
 	Updated           bool
 	LastReadMessageID uuid.UUID
 }
 
+// MarkAsRead はメンバー検証後、最終既読メッセージを更新または新規作成する。
 func (u *MessageReadUseCase) MarkAsRead(ctx context.Context, userID, roomID, messageID uuid.UUID) (*MarkAsReadResult, error) {
 	if userID == uuid.Nil {
 		return nil, ErrInvalidMessageReadUserID

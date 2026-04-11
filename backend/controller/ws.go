@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"chat-app/repository"
-	"chat-app/usecase"
 	"chat-app/wshub"
 
 	"github.com/google/uuid"
@@ -16,22 +14,20 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+// WSController は WebSocket 接続・ルーム購読・プレゼンス通知を扱う。
 type WSController struct {
 	Hub      *wshub.ConnectionManager
-	Members  repository.RoomMemberRepository
-	Presence *usecase.PresenceUseCase
+	Rooms    RoomUseCase
+	Presence PresenceJoinedRooms
 }
 
 type presenceFanout interface {
 	BroadcastToUsersInRooms(roomIDs []uuid.UUID, payload []byte)
 }
 
-type joinedRoomsForPresence interface {
-	JoinedRoomIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
-}
-
-func NewWSController(hub *wshub.ConnectionManager, members repository.RoomMemberRepository, presence *usecase.PresenceUseCase) *WSController {
-	return &WSController{Hub: hub, Members: members, Presence: presence}
+// NewWSController は WSController を生成する。Rooms は購読可否判定、Presence は配信先ルーム解決に使う。
+func NewWSController(hub *wshub.ConnectionManager, rooms RoomUseCase, presence PresenceJoinedRooms) *WSController {
+	return &WSController{Hub: hub, Rooms: rooms, Presence: presence}
 }
 
 var wsUpgrader = websocket.Upgrader{
@@ -48,23 +44,7 @@ const (
 	wsDBOpTimeout  = 5 * time.Second
 )
 
-type wsClientMessage struct {
-	Type   string `json:"type"`
-	RoomID string `json:"room_id"`
-}
-
-type wsServerMessage struct {
-	Type    string `json:"type"`
-	RoomID  string `json:"room_id,omitempty"`
-	Message string `json:"message,omitempty"`
-}
-
-type presenceUpdatedPayload struct {
-	Type     string    `json:"type"`
-	UserID   uuid.UUID `json:"user_id"`
-	IsOnline bool      `json:"is_online"`
-}
-
+// Handle は GET /ws で WebSocket を確立し、メッセージループを回す。
 func (w *WSController) Handle(c echo.Context) error {
 	if w.Hub == nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "websocket hub not configured")
@@ -130,7 +110,7 @@ func (w *WSController) Handle(c echo.Context) error {
 		switch in.Type {
 		case "subscribe_room":
 			ctx, cancel := context.WithTimeout(context.Background(), wsDBOpTimeout)
-			ok, err := w.Members.IsActiveMember(ctx, roomID, userID)
+			ok, err := w.Rooms.IsActiveRoomMember(ctx, roomID, userID)
 			cancel()
 			if err != nil {
 				w.writeWSError(connID, "internal error")
@@ -179,7 +159,8 @@ func (w *WSController) writeJSON(connID uuid.UUID, v any) {
 	_ = w.Hub.WriteText(connID, b)
 }
 
-func broadcastPresenceUpdated(hub presenceFanout, rooms joinedRoomsForPresence, ctx context.Context, userID uuid.UUID, isOnline bool) {
+// broadcastPresenceUpdated はユーザーのオンライン状態を、参加ルームの購読者へ配信する。
+func broadcastPresenceUpdated(hub presenceFanout, rooms PresenceJoinedRooms, ctx context.Context, userID uuid.UUID, isOnline bool) {
 	if hub == nil || rooms == nil {
 		return
 	}

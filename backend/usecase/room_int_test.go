@@ -57,7 +57,7 @@ func testUserActive(t *testing.T, gormDB *gorm.DB, email string, active bool) *e
 
 func newRoomUseCase(gormDB *gorm.DB) *RoomUseCase {
 	return NewRoomUseCase(
-		gormDB,
+		repository.NewRoomUnitOfWork(gormDB),
 		repository.NewUserRepository(gormDB),
 		repository.NewRoomRepository(gormDB),
 		repository.NewRoomMemberRepository(gormDB),

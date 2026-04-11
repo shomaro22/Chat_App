@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"chat-app/entity"
 	"chat-app/usecase"
@@ -15,68 +14,18 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+// MessageController はメッセージ関連の HTTP ハンドラと作成時の WS 通知。
 type MessageController struct {
-	Messages *usecase.MessageUseCase
+	Messages MessageUseCase
 	Hub      *wshub.ConnectionManager
 }
 
-func NewMessageController(messages *usecase.MessageUseCase, hub *wshub.ConnectionManager) *MessageController {
+// NewMessageController は MessageController を生成する。
+func NewMessageController(messages MessageUseCase, hub *wshub.ConnectionManager) *MessageController {
 	return &MessageController{Messages: messages, Hub: hub}
 }
 
-// --- POST /rooms/:id/messages ---
-
-type createMessageRequest struct {
-	SenderID string  `json:"sender_id"`
-	Content  *string `json:"content"`
-	ImageURL *string `json:"image_url"`
-}
-
-type createMessageResponse struct {
-	Message messageJSON `json:"message"`
-}
-
-// --- GET /rooms/:id/messages ---
-
-type listMessagesResponse struct {
-	Messages []messageJSON `json:"messages"`
-}
-
-type messageJSON struct {
-	ID        uuid.UUID `json:"id"`
-	RoomID    uuid.UUID `json:"room_id"`
-	SenderID  uuid.UUID `json:"sender_id"`
-	Content   *string   `json:"content"`
-	ImageURL  *string   `json:"image_url"`
-	DeletedAt *string   `json:"deleted_at"`
-	CreatedAt string    `json:"created_at"`
-}
-
-func messageToJSON(m *entity.Message) messageJSON {
-	var deleted *string
-	if m.DeletedAt != nil {
-		s := m.DeletedAt.UTC().Format(time.RFC3339Nano)
-		deleted = &s
-	}
-	return messageJSON{
-		ID:        m.ID,
-		RoomID:    m.RoomID,
-		SenderID:  m.SenderID,
-		Content:   copyStrPtr(m.Content),
-		ImageURL:  copyStrPtr(m.ImageURL),
-		DeletedAt: deleted,
-		CreatedAt: m.CreatedAt.UTC().Format(time.RFC3339Nano),
-	}
-}
-
-func copyStrPtr(s *string) *string {
-	if s == nil {
-		return nil
-	}
-	v := *s
-	return &v
-}
-
+// CreateMessage は POST /rooms/:id/messages でメッセージを作成する。
 func (h *MessageController) CreateMessage(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -102,11 +51,7 @@ func (h *MessageController) broadcastMessageCreated(msg *entity.Message) {
 	if h.Hub == nil || msg == nil {
 		return
 	}
-	payload := struct {
-		Type    string      `json:"type"`
-		RoomID  uuid.UUID   `json:"room_id"`
-		Message messageJSON `json:"message"`
-	}{
+	payload := messageCreatedWSBroadcast{
 		Type:    "message_created",
 		RoomID:  msg.RoomID,
 		Message: messageToJSON(msg),
@@ -118,6 +63,7 @@ func (h *MessageController) broadcastMessageCreated(msg *entity.Message) {
 	h.Hub.BroadcastToRoom(msg.RoomID, b)
 }
 
+// ListMessages は GET /rooms/:id/messages で履歴を返す。
 func (h *MessageController) ListMessages(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -158,6 +104,7 @@ func (h *MessageController) ListMessages(c echo.Context) error {
 	return c.JSON(http.StatusOK, listMessagesResponse{Messages: out})
 }
 
+// DeleteMessage は DELETE /messages/:id で論理削除する。
 func (h *MessageController) DeleteMessage(c echo.Context) error {
 	messageID, err := uuid.Parse(c.Param("id"))
 	if err != nil {

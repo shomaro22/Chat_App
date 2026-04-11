@@ -36,7 +36,7 @@ func TestPresenceUseCase_JoinedRoomIDs_ActiveMembersOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, ids, 2)
 
-	require.NoError(t, members.Leave(ctx, r1.ID, u1.ID))
+	require.NoError(t, members.Leave(ctx, r1.ID, u1.ID, time.Now().UTC()))
 	ids2, err := uc.JoinedRoomIDs(ctx, u1.ID)
 	require.NoError(t, err)
 	require.Len(t, ids2, 1)

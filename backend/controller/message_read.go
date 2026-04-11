@@ -12,20 +12,18 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+// MessageReadController は既読更新の HTTP と WS 通知。
 type MessageReadController struct {
-	Reads *usecase.MessageReadUseCase
+	Reads MessageReadUseCase
 	Hub   *wshub.ConnectionManager
 }
 
-func NewMessageReadController(reads *usecase.MessageReadUseCase, hub *wshub.ConnectionManager) *MessageReadController {
+// NewMessageReadController は MessageReadController を生成する。
+func NewMessageReadController(reads MessageReadUseCase, hub *wshub.ConnectionManager) *MessageReadController {
 	return &MessageReadController{Reads: reads, Hub: hub}
 }
 
-type markAsReadRequest struct {
-	UserID    string `json:"user_id"`
-	MessageID string `json:"message_id"`
-}
-
+// MarkAsRead は POST /rooms/:id/read で最終既読を更新する。
 func (h *MessageReadController) MarkAsRead(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -51,13 +49,6 @@ func (h *MessageReadController) MarkAsRead(c echo.Context) error {
 		h.broadcastReadUpdated(roomID, userID, result.LastReadMessageID)
 	}
 	return c.NoContent(http.StatusNoContent)
-}
-
-type readUpdatedPayload struct {
-	Type              string    `json:"type"`
-	RoomID            uuid.UUID `json:"room_id"`
-	UserID            uuid.UUID `json:"user_id"`
-	LastReadMessageID uuid.UUID `json:"last_read_message_id"`
 }
 
 func (h *MessageReadController) broadcastReadUpdated(roomID, userID, lastReadMessageID uuid.UUID) {

@@ -39,6 +39,7 @@ func normalizeOptionalString(s *string) *string {
 	return &t
 }
 
+// SendMessage はメンバー検証のうえでメッセージを保存する。
 func (u *MessageUseCase) SendMessage(ctx context.Context, roomID, senderID uuid.UUID, content, imageURL *string) (*entity.Message, error) {
 	if roomID == uuid.Nil {
 		return nil, ErrInvalidRoomID
@@ -75,6 +76,7 @@ func (u *MessageUseCase) SendMessage(ctx context.Context, roomID, senderID uuid.
 	return msg, nil
 }
 
+// ListMessages は参加メンバーのみ、ルームのメッセージ履歴を取得する。
 func (u *MessageUseCase) ListMessages(ctx context.Context, roomID, userID uuid.UUID, beforeID *uuid.UUID, limit int) ([]entity.Message, error) {
 	if roomID == uuid.Nil {
 		return nil, ErrInvalidRoomID
@@ -106,6 +108,7 @@ func normalizeMessageListLimit(limit int) int {
 	return limit
 }
 
+// DeleteMessage は送信者本人によるメッセージの論理削除を行う。
 func (u *MessageUseCase) DeleteMessage(ctx context.Context, messageID, userID uuid.UUID) error {
 	if messageID == uuid.Nil {
 		return ErrInvalidMessageID
