@@ -21,8 +21,11 @@ type createMessageResponse struct {
 }
 
 type listMessagesResponse struct {
+	RoomID   uuid.UUID           `json:"room_id"`
 	Messages []listedMessageJSON `json:"messages"`
 	Order    string              `json:"order"`
+	Limit    int                 `json:"limit"`
+	Count    int                 `json:"count"`
 }
 
 type listedMessageJSON struct {
@@ -37,22 +40,25 @@ type messageJSON struct {
 	SenderID  uuid.UUID `json:"sender_id"`
 	Content   *string   `json:"content"`
 	ImageURL  *string   `json:"image_url"`
-	DeletedAt *string   `json:"deleted_at"`
+	IsDeleted bool      `json:"is_deleted"`
+	DeletedAt *string   `json:"deleted_at,omitempty"`
 	CreatedAt string    `json:"created_at"`
 }
 
-// messageDeletedWSBroadcast は message_deleted の WS イベント用。
+// messageDeletedWSBroadcast は message.deleted の WS イベント用。
 type messageDeletedWSBroadcast struct {
-	Type      string    `json:"type"`
-	RoomID    uuid.UUID `json:"room_id"`
-	MessageID uuid.UUID `json:"message_id"`
+	Type          string    `json:"type"`
+	SchemaVersion int       `json:"schema_version"`
+	RoomID        uuid.UUID `json:"room_id"`
+	MessageID     uuid.UUID `json:"message_id"`
 }
 
-// messageCreatedWSBroadcast は WebSocket で送る message_created イベント用 JSON。
+// messageCreatedWSBroadcast は message.created イベント用 JSON。
 type messageCreatedWSBroadcast struct {
-	Type    string      `json:"type"`
-	RoomID  uuid.UUID   `json:"room_id"`
-	Message messageJSON `json:"message"`
+	Type          string      `json:"type"`
+	SchemaVersion int         `json:"schema_version"`
+	RoomID        uuid.UUID   `json:"room_id"`
+	Message       messageJSON `json:"message"`
 }
 
 func listedMessageToJSON(m usecase.ListedMessage) listedMessageJSON {
@@ -75,6 +81,7 @@ func messageToJSON(m *entity.Message) messageJSON {
 		SenderID:  m.SenderID,
 		Content:   copyStrPtr(m.Content),
 		ImageURL:  copyStrPtr(m.ImageURL),
+		IsDeleted: m.IsDeleted || m.DeletedAt != nil,
 		DeletedAt: deleted,
 		CreatedAt: m.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
@@ -94,9 +101,10 @@ type markAsReadRequest struct {
 	MessageID string `json:"message_id"`
 }
 
-// readUpdatedPayload は WebSocket read_updated イベント用 JSON。
+// readUpdatedPayload は message.read イベント用 JSON。
 type readUpdatedPayload struct {
 	Type              string    `json:"type"`
+	SchemaVersion     int       `json:"schema_version"`
 	RoomID            uuid.UUID `json:"room_id"`
 	UserID            uuid.UUID `json:"user_id"`
 	LastReadMessageID uuid.UUID `json:"last_read_message_id"`
@@ -104,6 +112,7 @@ type readUpdatedPayload struct {
 
 type memberReadBriefJSON struct {
 	UserID            uuid.UUID  `json:"user_id"`
+	UserName          string     `json:"user_name"`
 	LastReadMessageID *uuid.UUID `json:"last_read_message_id,omitempty"`
 }
 
@@ -122,6 +131,7 @@ func roomReadStateToJSON(s *usecase.RoomReadState) roomReadStateJSON {
 	for _, m := range s.MemberReads {
 		members = append(members, memberReadBriefJSON{
 			UserID:            m.UserID,
+			UserName:          m.UserName,
 			LastReadMessageID: m.LastReadMessageID,
 		})
 	}

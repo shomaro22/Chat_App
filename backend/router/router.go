@@ -11,15 +11,16 @@ import (
 
 // Config は Echo に載せるハンドラとミドルウェア設定。
 type Config struct {
-	Auth      *controller.AuthController
-	Room      *controller.RoomController
-	Messages  *controller.MessageController
-	Reads     *controller.MessageReadController
-	WS        *controller.WSController
-	Media     *controller.MediaController
-	Admin     *controller.AdminController
-	ParseJWT  middleware.TokenParser
-	StaticDir string // ローカルパス（/static で配信）
+	Auth            *controller.AuthController
+	Room            *controller.RoomController
+	Messages        *controller.MessageController
+	Reads           *controller.MessageReadController
+	WS              *controller.WSController
+	Media           *controller.MediaController
+	Admin           *controller.AdminController
+	ParseJWT        middleware.TokenParser
+	ValidateSession middleware.SessionValidator // nil 可（JWT のみ検証）
+	StaticDir       string                      // ローカルパス（/static で配信）
 }
 
 // New はルーティング済み Echo を返す。/auth は公開、それ以外の API は JWT 必須、/admin は admin ロール必須。
@@ -39,7 +40,7 @@ func New(cfg Config) *echo.Echo {
 		e.POST("/auth/register", cfg.Auth.Register)
 	}
 
-	jwt := middleware.JWTAuth(cfg.ParseJWT)
+	jwt := middleware.JWTAuth(cfg.ParseJWT, cfg.ValidateSession)
 
 	api := e.Group("")
 	api.Use(jwt)

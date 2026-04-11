@@ -10,6 +10,14 @@ import (
 	"github.com/google/uuid"
 )
 
+// AuthUseCase はログイン・登録・登録直後の JWT 発行の抽象（認証 HTTP ハンドラ用）。
+// トークン・パスワードの実体は chat-app/auth。ParseToken はミドルウェアに渡す。
+type AuthUseCase interface {
+	Login(ctx context.Context, email, password string) (accessToken string, err error)
+	Register(ctx context.Context, name, email, password, bootstrapAdminEmail string) (*entity.User, error)
+	CreateTokenForUser(ctx context.Context, userID uuid.UUID) (accessToken string, err error)
+}
+
 // RoomUseCase はルーム系ユースケースの抽象。
 type RoomUseCase interface {
 	GetJoinedRooms(ctx context.Context, userID uuid.UUID) ([]entity.Room, error)
@@ -22,6 +30,7 @@ type RoomUseCase interface {
 	UpdateGroupName(ctx context.Context, roomID, actorID uuid.UUID, name string) error
 	CloseRoom(ctx context.Context, roomID, actorID uuid.UUID) error
 	IsActiveRoomMember(ctx context.Context, roomID, userID uuid.UUID) (bool, error)
+	CanSubscribeWebSocket(ctx context.Context, roomID, userID uuid.UUID) error
 }
 
 // MessageUseCase はメッセージ送受信・削除の抽象。

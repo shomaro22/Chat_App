@@ -19,8 +19,8 @@ func newMessageReadUseCase(gormDB *gorm.DB) *MessageReadUseCase {
 	return NewMessageReadUseCase(
 		repository.NewMessageRepository(gormDB),
 		repository.NewMessageReadRepository(gormDB),
-		repository.NewRoomMemberRepository(gormDB),
 		repository.NewRoomRepository(gormDB),
+		repository.NewUserRepository(gormDB),
 	)
 }
 
@@ -37,6 +37,19 @@ func TestMessageReadUseCase_NotMember(t *testing.T) {
 
 	_, err := uc.MarkAsRead(ctx, outsider.ID, r.ID, msg.ID)
 	require.ErrorIs(t, err, ErrReadNotRoomMember)
+}
+
+func TestMessageReadUseCase_GetRoomReadState_NotMember(t *testing.T) {
+	ctx := context.Background()
+	gormDB := setupUsecaseTestDB(t)
+	u1, _, r := setupGroupRoomWithMembers(t, gormDB)
+	outsider := testUser(t, gormDB, "readstateout@example.com")
+	uc := newMessageReadUseCase(gormDB)
+
+	_, err := uc.GetRoomReadState(ctx, outsider.ID, r.ID)
+	require.ErrorIs(t, err, ErrReadNotRoomMember)
+	_, err = uc.GetRoomReadState(ctx, u1.ID, r.ID)
+	require.NoError(t, err)
 }
 
 func TestMessageReadUseCase_MessageNotFound(t *testing.T) {

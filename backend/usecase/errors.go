@@ -29,9 +29,9 @@ var (
 	ErrReadMessageNotFound      = errors.New("read target message not found")
 	ErrReadMessageRoomMismatch  = errors.New("message does not belong to room")
 
-	ErrRoomNotFound    = errors.New("room not found")
-	ErrNotGroupRoom    = errors.New("not a group room")
-	ErrAlreadyMember   = errors.New("user is already an active member")
+	ErrRoomNotFound   = errors.New("room not found")
+	ErrNotGroupRoom   = errors.New("not a group room")
+	ErrAlreadyMember  = errors.New("user is already an active member")
 	ErrForbiddenKick  = errors.New("forbidden to remove this member")
 	ErrMemberNotFound = errors.New("member not found in room")
 

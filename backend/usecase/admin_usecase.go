@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"chat-app/entity"
+	"chat-app/auth"
 	"chat-app/repository"
 
 	"github.com/google/uuid"
@@ -26,7 +26,7 @@ func (a *AdminUseCase) requireAdmin(ctx context.Context, adminID uuid.UUID) erro
 	if err != nil {
 		return err
 	}
-	if u == nil || u.Role != entity.UserRoleAdmin || !u.Active {
+	if u == nil || !auth.IsAdmin(u.Role) || !u.Active {
 		return ErrForbiddenAdmin
 	}
 	return nil

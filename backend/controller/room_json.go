@@ -39,6 +39,7 @@ type roomJSON struct {
 	CreatedBy     uuid.UUID  `json:"created_by"`
 	CreatedAt     string     `json:"created_at"`
 	UpdatedAt     string     `json:"updated_at"`
+	IsFrozen      bool       `json:"is_frozen"`
 	FrozenAt      *string    `json:"frozen_at,omitempty"`
 }
 
@@ -52,6 +53,7 @@ func roomToJSON(r *entity.Room) roomJSON {
 		CreatedBy:     r.CreatedBy,
 		CreatedAt:     r.CreatedAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt:     r.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		IsFrozen:      r.FrozenAt != nil,
 	}
 	if r.FrozenAt != nil {
 		s := r.FrozenAt.UTC().Format(time.RFC3339Nano)
@@ -74,6 +76,7 @@ type roomDetailResponse struct {
 	Members             []roomMemberJSON `json:"members"`
 	DirectPeer          *roomMemberJSON  `json:"direct_peer,omitempty"`
 	MyLastReadMessageID *uuid.UUID       `json:"my_last_read_message_id,omitempty"`
+	UnreadCount         int64            `json:"unread_count"`
 }
 
 func roomDetailToJSON(d *usecase.RoomDetail) roomDetailResponse {
@@ -104,17 +107,19 @@ func roomDetailToJSON(d *usecase.RoomDetail) roomDetailResponse {
 		Members:             members,
 		DirectPeer:          peer,
 		MyLastReadMessageID: d.MyLastReadMessageID,
+		UnreadCount:         d.UnreadCount,
 	}
 }
 
 // --- ルーム一覧（付加情報付き） ---
 
 type lastMessageSummaryJSON struct {
-	ID        uuid.UUID `json:"id"`
-	SenderID  uuid.UUID `json:"sender_id"`
-	Preview   *string   `json:"preview,omitempty"`
-	CreatedAt string    `json:"created_at"`
-	IsDeleted bool      `json:"is_deleted"`
+	ID         uuid.UUID `json:"id"`
+	SenderID   uuid.UUID `json:"sender_id"`
+	SenderName string    `json:"sender_name,omitempty"`
+	Preview    *string   `json:"preview,omitempty"`
+	CreatedAt  string    `json:"created_at"`
+	IsDeleted  bool      `json:"is_deleted"`
 }
 
 type roomListItemJSON struct {
@@ -142,13 +147,17 @@ func joinedRoomSummaryToJSON(s usecase.JoinedRoomSummary) roomListItemJSON {
 	}
 	item.DirectPeerName = s.DirectPeerName
 	if s.LastMessage != nil {
-		item.LastMessage = &lastMessageSummaryJSON{
+		lm := lastMessageSummaryJSON{
 			ID:        s.LastMessage.ID,
 			SenderID:  s.LastMessage.SenderID,
 			Preview:   s.LastPreview,
 			CreatedAt: s.LastMessage.CreatedAt.UTC().Format(time.RFC3339Nano),
 			IsDeleted: s.LastMessage.IsDeleted || s.LastMessage.DeletedAt != nil,
 		}
+		if s.LastMessageSenderName != nil {
+			lm.SenderName = *s.LastMessageSenderName
+		}
+		item.LastMessage = &lm
 	}
 	return item
 }

@@ -18,7 +18,6 @@ import (
 func newMessageUseCase(gormDB *gorm.DB) *MessageUseCase {
 	return NewMessageUseCase(
 		repository.NewMessageRepository(gormDB),
-		repository.NewRoomMemberRepository(gormDB),
 		repository.NewUserRepository(gormDB),
 		repository.NewRoomRepository(gormDB),
 	)

@@ -11,12 +11,12 @@ import (
 
 // AuthController はログイン・登録。
 type AuthController struct {
-	Auth                *usecase.AuthUseCase
+	Auth                AuthUseCase
 	BootstrapAdminEmail string
 }
 
 // NewAuthController は AuthController を生成する。
-func NewAuthController(auth *usecase.AuthUseCase, bootstrapAdminEmail string) *AuthController {
+func NewAuthController(auth AuthUseCase, bootstrapAdminEmail string) *AuthController {
 	return &AuthController{Auth: auth, BootstrapAdminEmail: bootstrapAdminEmail}
 }
 

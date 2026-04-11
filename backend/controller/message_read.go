@@ -72,7 +72,8 @@ func (h *MessageReadController) broadcastReadUpdated(roomID, userID, lastReadMes
 		return
 	}
 	b, err := json.Marshal(readUpdatedPayload{
-		Type:              "read_updated",
+		Type:              WSEventMessageRead,
+		SchemaVersion:     WSEventSchemaVersion,
 		RoomID:            roomID,
 		UserID:            userID,
 		LastReadMessageID: lastReadMessageID,

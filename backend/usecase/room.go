@@ -43,13 +43,14 @@ func NewRoomUseCase(tx repository.RoomUnitOfWork, users repository.UserRepositor
 
 // JoinedRoomSummary はルーム一覧向けの付加情報付き行。
 type JoinedRoomSummary struct {
-	Room           entity.Room
-	LastMessage    *entity.Message
-	LastPreview    *string
-	UnreadCount    int64
-	PeerOnline     *bool // DM の相手のみ
-	DirectPeerName *string
-	DirectPeerID   *uuid.UUID
+	Room                  entity.Room
+	LastMessage           *entity.Message
+	LastPreview           *string
+	LastMessageSenderName *string
+	UnreadCount           int64
+	PeerOnline            *bool // DM の相手のみ
+	DirectPeerName        *string
+	DirectPeerID          *uuid.UUID
 }
 
 // RoomMemberBrief はルーム詳細のメンバー表示用。
@@ -66,6 +67,7 @@ type RoomDetail struct {
 	Members             []RoomMemberBrief
 	DirectPeer          *RoomMemberBrief
 	MyLastReadMessageID *uuid.UUID
+	UnreadCount         int64
 }
 
 // GetJoinedRooms はユーザーが参加中のルーム一覧を返す。
@@ -76,7 +78,7 @@ func (useCase *RoomUseCase) GetJoinedRooms(ctx context.Context, userID uuid.UUID
 	return useCase.Rooms.ListJoinedRooms(ctx, userID, DefaultJoinedRoomsLimit, 0, true)
 }
 
-// IsActiveRoomMember は当該ユーザーがルームのアクティブメンバーかを返す（WS 購読可否など）。
+// IsActiveRoomMember は当該ユーザーがルームのアクティブメンバーかを返す（補助用途）。
 func (useCase *RoomUseCase) IsActiveRoomMember(ctx context.Context, roomID, userID uuid.UUID) (bool, error) {
 	if roomID == uuid.Nil {
 		return false, ErrInvalidRoomID
@@ -85,6 +87,19 @@ func (useCase *RoomUseCase) IsActiveRoomMember(ctx context.Context, roomID, user
 		return false, ErrInvalidUserID
 	}
 	return useCase.Members.IsActiveMember(ctx, roomID, userID)
+}
+
+// CanSubscribeWebSocket は論理削除されていないルームのアクティブメンバーかつ未凍結のとき nil。
+// 凍結ルームはリアルタイム購読不可（HTTP での閲覧は ListMessages 等で可）。
+func (useCase *RoomUseCase) CanSubscribeWebSocket(ctx context.Context, roomID, userID uuid.UUID) error {
+	r, err := RoomForActiveMember(ctx, useCase.Rooms, roomID, userID)
+	if err != nil {
+		return err
+	}
+	if r.FrozenAt != nil {
+		return ErrRoomFrozen
+	}
+	return nil
 }
 
 // CreateOrGetDirectRoom は1対1 DM を返す。未作成なら作成し、既存ならそれを返す。
@@ -312,6 +327,9 @@ func (useCase *RoomUseCase) GetJoinedRoomSummaries(ctx context.Context, userID u
 			m := lm
 			sum.LastMessage = &m
 			sum.LastPreview = lastMessagePreview(&m)
+			if su, err := useCase.Users.FindByID(ctx, m.SenderID); err == nil && su != nil {
+				sum.LastMessageSenderName = &su.Name
+			}
 		}
 		readRow, err := useCase.Reads.FindByRoomAndUser(ctx, r.ID, userID)
 		if err != nil {
@@ -399,9 +417,16 @@ func (useCase *RoomUseCase) GetRoomDetail(ctx context.Context, roomID, requester
 	if err != nil {
 		return nil, err
 	}
+	var lastRead *uuid.UUID
 	if readRow != nil {
+		lastRead = readRow.LastReadMessageID
 		detail.MyLastReadMessageID = readRow.LastReadMessageID
 	}
+	unread, err := useCase.Messages.CountUnreadForViewer(ctx, roomID, requesterID, lastRead)
+	if err != nil {
+		return nil, err
+	}
+	detail.UnreadCount = unread
 	return detail, nil
 }
 

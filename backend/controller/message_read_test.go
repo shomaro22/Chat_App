@@ -42,7 +42,8 @@ func TestReadUpdatedPayloadJSON(t *testing.T) {
 	uid := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	mid := uuid.MustParse("33333333-3333-3333-3333-333333333333")
 	b, err := json.Marshal(readUpdatedPayload{
-		Type:              "read_updated",
+		Type:              WSEventMessageRead,
+		SchemaVersion:     WSEventSchemaVersion,
 		RoomID:            rid,
 		UserID:            uid,
 		LastReadMessageID: mid,
@@ -50,7 +51,8 @@ func TestReadUpdatedPayloadJSON(t *testing.T) {
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(b, &out))
-	require.Equal(t, "read_updated", out["type"])
+	require.Equal(t, WSEventMessageRead, out["type"])
+	require.EqualValues(t, WSEventSchemaVersion, out["schema_version"])
 	require.Equal(t, rid.String(), out["room_id"])
 	require.Equal(t, uid.String(), out["user_id"])
 	require.Equal(t, mid.String(), out["last_read_message_id"])

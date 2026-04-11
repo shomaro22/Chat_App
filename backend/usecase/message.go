@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	defaultMessageListLimit = 50
-	maxMessageListLimit     = 100
+	// DefaultMessageListLimit は limit 省略時のメッセージ取得件数。
+	DefaultMessageListLimit = 50
+	// MaxMessageListLimit は limit の上限。
+	MaxMessageListLimit = 100
 )
 
 // ListedMessage は一覧 API 向け（送信者名・任意で既読数）。
@@ -24,18 +26,16 @@ type ListedMessage struct {
 }
 
 type MessageUseCase struct {
-	MessageRepo    repository.MessageRepository
-	RoomMemberRepo repository.RoomMemberRepository
-	Users          repository.UserRepository
-	Rooms          repository.RoomRepository
+	MessageRepo repository.MessageRepository
+	Users       repository.UserRepository
+	Rooms       repository.RoomRepository
 }
 
-func NewMessageUseCase(messages repository.MessageRepository, members repository.RoomMemberRepository, users repository.UserRepository, rooms repository.RoomRepository) *MessageUseCase {
+func NewMessageUseCase(messages repository.MessageRepository, users repository.UserRepository, rooms repository.RoomRepository) *MessageUseCase {
 	return &MessageUseCase{
-		MessageRepo:    messages,
-		RoomMemberRepo: members,
-		Users:          users,
-		Rooms:          rooms,
+		MessageRepo: messages,
+		Users:       users,
+		Rooms:       rooms,
 	}
 }
 
@@ -63,12 +63,9 @@ func (u *MessageUseCase) SendMessage(ctx context.Context, roomID, senderID uuid.
 	if content == nil && imageURL == nil {
 		return nil, ErrEmptyMessage
 	}
-	roomRow, err := u.Rooms.FindByIDForActiveMember(ctx, roomID, senderID)
+	roomRow, err := RoomForActiveMember(ctx, u.Rooms, roomID, senderID)
 	if err != nil {
 		return nil, err
-	}
-	if roomRow == nil {
-		return nil, ErrNotRoomMember
 	}
 	if roomRow.FrozenAt != nil {
 		return nil, ErrRoomFrozen
@@ -108,12 +105,8 @@ func (u *MessageUseCase) ListMessages(ctx context.Context, roomID, userID uuid.U
 		afterID = nil
 	}
 	limit = normalizeMessageListLimit(limit)
-	ok, err := u.RoomMemberRepo.IsActiveMember(ctx, roomID, userID)
-	if err != nil {
+	if _, err := RoomForActiveMember(ctx, u.Rooms, roomID, userID); err != nil {
 		return nil, err
-	}
-	if !ok {
-		return nil, ErrNotRoomMember
 	}
 	rows, err := u.MessageRepo.ListByRoomID(ctx, roomID, beforeID, afterID, limit, orderDesc)
 	if err != nil {
@@ -164,10 +157,10 @@ func (u *MessageUseCase) ListMessages(ctx context.Context, roomID, userID uuid.U
 
 func normalizeMessageListLimit(limit int) int {
 	if limit <= 0 {
-		return defaultMessageListLimit
+		return DefaultMessageListLimit
 	}
-	if limit > maxMessageListLimit {
-		return maxMessageListLimit
+	if limit > MaxMessageListLimit {
+		return MaxMessageListLimit
 	}
 	return limit
 }
@@ -193,12 +186,9 @@ func (u *MessageUseCase) DeleteMessage(ctx context.Context, messageID, userID uu
 	if msg.SenderID != userID {
 		return uuid.Nil, ErrForbiddenMessageEdit
 	}
-	roomRow, err := u.Rooms.FindByIDForActiveMember(ctx, msg.RoomID, userID)
+	roomRow, err := RoomForActiveMember(ctx, u.Rooms, msg.RoomID, userID)
 	if err != nil {
 		return uuid.Nil, err
-	}
-	if roomRow == nil {
-		return uuid.Nil, ErrNotRoomMember
 	}
 	if roomRow.FrozenAt != nil {
 		return uuid.Nil, ErrRoomFrozen

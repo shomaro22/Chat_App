@@ -1,12 +1,17 @@
 package main
 
 import (
+	"errors"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 
+	"chat-app/auth"
 	"chat-app/controller"
 	"chat-app/db"
+	"chat-app/entity"
+	"chat-app/middleware"
 	"chat-app/repository"
 	"chat-app/router"
 	"chat-app/usecase"
@@ -14,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/labstack/echo/v4"
 )
 
 func main() {
@@ -67,16 +73,29 @@ func main() {
 	msgRepo := repository.NewMessageRepository(gormDB)
 	readRepo := repository.NewMessageReadRepository(gormDB)
 
-	authUC := usecase.NewAuthUseCase(users, []byte(jwtSecret))
+	tokenSvc := auth.NewTokenService([]byte(jwtSecret), auth.DefaultTokenTTL)
+	authUC := usecase.NewAuthUseCase(users, tokenSvc)
 	roomUC := usecase.NewRoomUseCase(roomTx, users, rooms, members, msgRepo, readRepo, hubOnlineLookup{hub})
-	msgUC := usecase.NewMessageUseCase(msgRepo, members, users, rooms)
-	readUC := usecase.NewMessageReadUseCase(msgRepo, readRepo, members, rooms)
+	msgUC := usecase.NewMessageUseCase(msgRepo, users, rooms)
+	readUC := usecase.NewMessageReadUseCase(msgRepo, readRepo, rooms, users)
 	presenceUC := usecase.NewPresenceUseCase(rooms)
 	mediaUC := usecase.NewMediaUseCase(publicRoot)
 	adminUC := usecase.NewAdminUseCase(users, rooms, members)
 
 	roomCtl := controller.NewRoomController(roomUC)
-	msgCtl := controller.NewMessageController(msgUC, hub)
+	validateSession := func(c echo.Context, uid uuid.UUID, _ entity.UserRole) error {
+		u, err := auth.RequireActiveUser(c.Request().Context(), users, uid)
+		if err != nil {
+			if errors.Is(err, auth.ErrNotActive) {
+				return echo.NewHTTPError(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			}
+			return echo.NewHTTPError(http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		}
+		c.Set(middleware.ContextUserRoleKey, string(u.Role))
+		return nil
+	}
+
+	msgCtl := controller.NewMessageController(msgUC, hub, mediaUC)
 	readCtl := controller.NewMessageReadController(readUC, hub)
 	wsCtl := controller.NewWSController(wsHubAdapter{hub}, roomUC, presenceUC)
 	authCtl := controller.NewAuthController(authUC, bootstrapAdmin)
@@ -84,15 +103,16 @@ func main() {
 	adminCtl := controller.NewAdminController(adminUC)
 
 	e := router.New(router.Config{
-		Auth:      authCtl,
-		Room:      roomCtl,
-		Messages:  msgCtl,
-		Reads:     readCtl,
-		WS:        wsCtl,
-		Media:     mediaCtl,
-		Admin:     adminCtl,
-		ParseJWT:  authUC.ParseToken,
-		StaticDir: publicRoot,
+		Auth:            authCtl,
+		Room:            roomCtl,
+		Messages:        msgCtl,
+		Reads:           readCtl,
+		WS:              wsCtl,
+		Media:           mediaCtl,
+		Admin:           adminCtl,
+		ParseJWT:        authUC.ParseToken,
+		ValidateSession: validateSession,
+		StaticDir:       publicRoot,
 	})
 	if err := e.Start(addr); err != nil {
 		log.Fatal(err)

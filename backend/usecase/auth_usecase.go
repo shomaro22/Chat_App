@@ -2,27 +2,25 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
+	"chat-app/auth"
 	"chat-app/entity"
 	"chat-app/repository"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 )
 
-const jwtTTL = 72 * time.Hour
-
-// AuthUseCase はログイン・登録・JWT 検証を担う。
+// AuthUseCase はログイン・登録・トークン発行のオーケストレーション。JWT / パスワードは auth パッケージに委譲する。
 type AuthUseCase struct {
 	Users  repository.UserRepository
-	Secret []byte
+	Tokens *auth.TokenService
 }
 
-func NewAuthUseCase(users repository.UserRepository, secret []byte) *AuthUseCase {
-	return &AuthUseCase{Users: users, Secret: secret}
+func NewAuthUseCase(users repository.UserRepository, tokens *auth.TokenService) *AuthUseCase {
+	return &AuthUseCase{Users: users, Tokens: tokens}
 }
 
 // Login はメールとパスワードで JWT を発行する。
@@ -38,10 +36,14 @@ func (a *AuthUseCase) Login(ctx context.Context, email, password string) (string
 	if u == nil || !u.Active {
 		return "", ErrInvalidCredentials
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
+	if err := auth.ComparePassword(u.PasswordHash, password); err != nil {
 		return "", ErrInvalidCredentials
 	}
-	return a.issueToken(u.ID, u.Role)
+	token, err := a.Tokens.Issue(u.ID, u.Role)
+	if err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 // Register はユーザーを作成する（最初の管理者は環境変数 BOOTSTRAP_ADMIN_EMAIL と一致する場合のみ admin）。
@@ -64,7 +66,7 @@ func (a *AuthUseCase) Register(ctx context.Context, name, email, password, boots
 	if existing != nil {
 		return nil, ErrEmailAlreadyInUse
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := auth.HashPassword(password)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +79,7 @@ func (a *AuthUseCase) Register(ctx context.Context, name, email, password, boots
 		ID:           uuid.New(),
 		Name:         name,
 		Email:        email,
-		PasswordHash: string(hash),
+		PasswordHash: hash,
 		Role:         role,
 		Active:       true,
 		CreatedAt:    now,
@@ -98,43 +100,17 @@ func (a *AuthUseCase) CreateTokenForUser(ctx context.Context, userID uuid.UUID) 
 	if u == nil || !u.Active {
 		return "", ErrUserNotFound
 	}
-	return a.issueToken(u.ID, u.Role)
-}
-
-func (a *AuthUseCase) issueToken(userID uuid.UUID, role entity.UserRole) (string, error) {
-	claims := jwt.MapClaims{
-		"sub":  userID.String(),
-		"role": string(role),
-		"exp":  time.Now().Add(jwtTTL).Unix(),
-		"iat":  time.Now().Unix(),
-	}
-	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return t.SignedString(a.Secret)
+	return a.Tokens.Issue(u.ID, u.Role)
 }
 
 // ParseToken は Authorization / WS 用トークン文字列からユーザー ID とロールを取り出す。
 func (a *AuthUseCase) ParseToken(raw string) (uuid.UUID, entity.UserRole, error) {
-	if len(a.Secret) == 0 || raw == "" {
-		return uuid.Nil, "", ErrUnauthorized
-	}
-	tok, err := jwt.Parse(raw, func(t *jwt.Token) (interface{}, error) {
-		if t.Method != jwt.SigningMethodHS256 {
-			return nil, ErrUnauthorized
+	uid, role, err := a.Tokens.Parse(raw)
+	if err != nil {
+		if errors.Is(err, auth.ErrInvalidToken) {
+			return uuid.Nil, "", ErrUnauthorized
 		}
-		return a.Secret, nil
-	})
-	if err != nil || !tok.Valid {
-		return uuid.Nil, "", ErrUnauthorized
+		return uuid.Nil, "", err
 	}
-	claims, ok := tok.Claims.(jwt.MapClaims)
-	if !ok {
-		return uuid.Nil, "", ErrUnauthorized
-	}
-	sub, _ := claims["sub"].(string)
-	uid, err := uuid.Parse(sub)
-	if err != nil || uid == uuid.Nil {
-		return uuid.Nil, "", ErrUnauthorized
-	}
-	roleStr, _ := claims["role"].(string)
-	return uid, entity.UserRole(roleStr), nil
+	return uid, role, nil
 }
