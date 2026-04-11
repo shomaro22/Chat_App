@@ -14,16 +14,16 @@ import (
 type MessageReadUseCase struct {
 	Messages repository.MessageRepository
 	Reads    repository.MessageReadRepository
-	Members  repository.RoomMemberRepository
 	Rooms    repository.RoomRepository
+	Users    repository.UserRepository
 }
 
-func NewMessageReadUseCase(messages repository.MessageRepository, reads repository.MessageReadRepository, members repository.RoomMemberRepository, rooms repository.RoomRepository) *MessageReadUseCase {
+func NewMessageReadUseCase(messages repository.MessageRepository, reads repository.MessageReadRepository, rooms repository.RoomRepository, users repository.UserRepository) *MessageReadUseCase {
 	return &MessageReadUseCase{
 		Messages: messages,
 		Reads:    reads,
-		Members:  members,
 		Rooms:    rooms,
+		Users:    users,
 	}
 }
 
@@ -45,19 +45,9 @@ func (u *MessageReadUseCase) MarkAsRead(ctx context.Context, userID, roomID, mes
 		return nil, ErrInvalidReadMessageID
 	}
 
-	ok, err := u.Members.IsActiveMember(ctx, roomID, userID)
+	roomRow, err := readRoomForActiveMember(ctx, u.Rooms, roomID, userID)
 	if err != nil {
 		return nil, err
-	}
-	if !ok {
-		return nil, ErrReadNotRoomMember
-	}
-	roomRow, err := u.Rooms.FindByIDForActiveMember(ctx, roomID, userID)
-	if err != nil {
-		return nil, err
-	}
-	if roomRow == nil {
-		return nil, ErrReadNotRoomMember
 	}
 	if roomRow.FrozenAt != nil {
 		return nil, ErrRoomFrozen
@@ -127,6 +117,7 @@ func (u *MessageReadUseCase) MarkAsRead(ctx context.Context, userID, roomID, mes
 // MemberReadBrief はルーム内メンバーの最終既読位置（集計 API 用）。
 type MemberReadBrief struct {
 	UserID            uuid.UUID
+	UserName          string
 	LastReadMessageID *uuid.UUID
 }
 
@@ -146,12 +137,8 @@ func (u *MessageReadUseCase) GetRoomReadState(ctx context.Context, userID, roomI
 	if roomID == uuid.Nil {
 		return nil, ErrInvalidMessageReadRoomID
 	}
-	ok, err := u.Members.IsActiveMember(ctx, roomID, userID)
-	if err != nil {
+	if _, err := readRoomForActiveMember(ctx, u.Rooms, roomID, userID); err != nil {
 		return nil, err
-	}
-	if !ok {
-		return nil, ErrReadNotRoomMember
 	}
 	readRow, err := u.Reads.FindByRoomAndUser(ctx, roomID, userID)
 	if err != nil {
@@ -169,10 +156,26 @@ func (u *MessageReadUseCase) GetRoomReadState(ctx context.Context, userID, roomI
 	if err != nil {
 		return nil, err
 	}
+	readUserIDs := make([]uuid.UUID, 0, len(rows))
+	for i := range rows {
+		readUserIDs = append(readUserIDs, rows[i].UserID)
+	}
+	var readUsers []entity.User
+	if len(readUserIDs) > 0 {
+		readUsers, err = u.Users.FindByIDs(ctx, readUserIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	nameBy := make(map[uuid.UUID]string, len(readUsers))
+	for i := range readUsers {
+		nameBy[readUsers[i].ID] = readUsers[i].Name
+	}
 	members := make([]MemberReadBrief, 0, len(rows))
 	for i := range rows {
 		members = append(members, MemberReadBrief{
 			UserID:            rows[i].UserID,
+			UserName:          nameBy[rows[i].UserID],
 			LastReadMessageID: rows[i].LastReadMessageID,
 		})
 	}

@@ -3,9 +3,12 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"time"
+
+	"chat-app/usecase"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -88,35 +91,40 @@ func (w *WSController) Handle(c echo.Context) error {
 
 		var in wsClientMessage
 		if err := json.Unmarshal(data, &in); err != nil {
-			w.writeWSError(connID, "invalid json")
+			w.writeWSError(connID, WSCodeInvalidJSON, "invalid json")
 			continue
 		}
 		roomID, err := uuid.Parse(in.RoomID)
 		if err != nil {
-			w.writeWSError(connID, "invalid room_id")
+			w.writeWSError(connID, WSCodeInvalidRoomID, "invalid room_id")
 			continue
 		}
 
 		switch in.Type {
-		case "subscribe_room":
+		case "subscribe_room", "room.subscribe":
 			ctx, cancel := context.WithTimeout(context.Background(), wsDBOpTimeout)
-			ok, err := w.Rooms.IsActiveRoomMember(ctx, roomID, userID)
+			err := w.Rooms.CanSubscribeWebSocket(ctx, roomID, userID)
 			cancel()
 			if err != nil {
-				w.writeWSError(connID, "internal error")
-				continue
-			}
-			if !ok {
-				w.writeWSError(connID, "forbidden: not an active member of this room")
+				switch {
+				case errors.Is(err, usecase.ErrRoomFrozen):
+					w.writeWSError(connID, WSCodeRoomFrozen, "room is frozen")
+				case errors.Is(err, usecase.ErrNotRoomMember):
+					w.writeWSError(connID, WSCodeForbiddenNotMember, "not an active member of this room")
+				case errors.Is(err, usecase.ErrInvalidRoomID), errors.Is(err, usecase.ErrInvalidUserID):
+					w.writeWSError(connID, WSCodeInvalidRoomID, "invalid room or user")
+				default:
+					w.writeWSError(connID, WSCodeInternal, "internal error")
+				}
 				continue
 			}
 			w.Hub.Subscribe(connID, roomID)
-			w.writeJSON(connID, wsServerMessage{Type: "subscribed", RoomID: roomID.String()})
-		case "unsubscribe_room":
+			w.writeJSON(connID, wsRoomAckOutbound{Type: WSEventRoomSubscribed, SchemaVersion: WSEventSchemaVersion, RoomID: roomID.String()})
+		case "unsubscribe_room", "room.unsubscribe":
 			w.Hub.Unsubscribe(connID, roomID)
-			w.writeJSON(connID, wsServerMessage{Type: "unsubscribed", RoomID: roomID.String()})
+			w.writeJSON(connID, wsRoomAckOutbound{Type: WSEventRoomUnsubscribed, SchemaVersion: WSEventSchemaVersion, RoomID: roomID.String()})
 		default:
-			w.writeWSError(connID, "unknown type")
+			w.writeWSError(connID, WSCodeUnknownType, "unknown type")
 		}
 	}
 	return nil
@@ -137,8 +145,13 @@ func (w *WSController) pingLoop(connID uuid.UUID, done <-chan struct{}) {
 	}
 }
 
-func (w *WSController) writeWSError(connID uuid.UUID, msg string) {
-	w.writeJSON(connID, wsServerMessage{Type: "error", Message: msg})
+func (w *WSController) writeWSError(connID uuid.UUID, code, msg string) {
+	w.writeJSON(connID, wsErrorOutbound{
+		Type:          WSEventError,
+		SchemaVersion: WSEventSchemaVersion,
+		Code:          code,
+		Message:       msg,
+	})
 }
 
 func (w *WSController) writeJSON(connID uuid.UUID, v any) {
@@ -163,9 +176,10 @@ func broadcastPresenceUpdated(hub PresenceBroadcastHub, rooms PresenceJoinedRoom
 		return
 	}
 	b, err := json.Marshal(presenceUpdatedPayload{
-		Type:     "presence_updated",
-		UserID:   userID,
-		IsOnline: isOnline,
+		Type:          WSEventPresenceChanged,
+		SchemaVersion: WSEventSchemaVersion,
+		UserID:        userID,
+		IsOnline:      isOnline,
 	})
 	if err != nil {
 		return

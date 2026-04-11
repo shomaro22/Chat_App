@@ -7,8 +7,8 @@ import (
 )
 
 type Room struct {
-	ID            uuid.UUID  `gorm:"type:uuid;primaryKey"`
-	Type          RoomType   `gorm:"not null"`
+	ID            uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Type          RoomType  `gorm:"not null"`
 	Name          *string
 	DirectUserAID *uuid.UUID `gorm:"column:direct_user_a_id;type:uuid"`
 	DirectUserBID *uuid.UUID `gorm:"column:direct_user_b_id;type:uuid"`
