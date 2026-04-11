@@ -9,7 +9,6 @@ import (
 	"chat-app/repository"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 func uuidPtr(u uuid.UUID) *uuid.UUID {
@@ -19,21 +18,23 @@ func uuidPtr(u uuid.UUID) *uuid.UUID {
 const defaultJoinedRoomsLimit = 200
 
 type RoomUseCase struct {
+	Tx      repository.RoomUnitOfWork
+	Users   repository.UserRepository
 	Rooms   repository.RoomRepository
 	Members repository.RoomMemberRepository
-	Users   repository.UserRepository
-	DB      *gorm.DB
 }
 
-func NewRoomUseCase(db *gorm.DB, users repository.UserRepository, rooms repository.RoomRepository, members repository.RoomMemberRepository) *RoomUseCase {
+// NewRoomUseCase は RoomUseCase を組み立てる。Tx はルームとメンバーの一括書き込み用。
+func NewRoomUseCase(tx repository.RoomUnitOfWork, users repository.UserRepository, rooms repository.RoomRepository, members repository.RoomMemberRepository) *RoomUseCase {
 	return &RoomUseCase{
+		Tx:      tx,
 		Users:   users,
 		Rooms:   rooms,
 		Members: members,
-		DB:      db,
 	}
 }
 
+// GetJoinedRooms はユーザーが参加中のルーム一覧を返す。
 func (useCase *RoomUseCase) GetJoinedRooms(ctx context.Context, userID uuid.UUID) ([]entity.Room, error) {
 	if userID == uuid.Nil {
 		return nil, ErrInvalidUserID
@@ -41,6 +42,18 @@ func (useCase *RoomUseCase) GetJoinedRooms(ctx context.Context, userID uuid.UUID
 	return useCase.Rooms.ListJoinedRooms(ctx, userID, defaultJoinedRoomsLimit, 0)
 }
 
+// IsActiveRoomMember は当該ユーザーがルームのアクティブメンバーかを返す（WS 購読可否など）。
+func (useCase *RoomUseCase) IsActiveRoomMember(ctx context.Context, roomID, userID uuid.UUID) (bool, error) {
+	if roomID == uuid.Nil {
+		return false, ErrInvalidRoomID
+	}
+	if userID == uuid.Nil {
+		return false, ErrInvalidUserID
+	}
+	return useCase.Members.IsActiveMember(ctx, roomID, userID)
+}
+
+// CreateOrGetDirectRoom は1対1 DM を返す。未作成なら作成し、既存ならそれを返す。
 func (useCase *RoomUseCase) CreateOrGetDirectRoom(ctx context.Context, userID, targetUserID uuid.UUID) (*entity.Room, error) {
 	if userID == uuid.Nil || targetUserID == uuid.Nil {
 		return nil, ErrInvalidUserID
@@ -80,10 +93,7 @@ func (useCase *RoomUseCase) CreateOrGetDirectRoom(ctx context.Context, userID, t
 	pairA, pairB := entity.OrderedUserPair(userID, targetUserID)
 
 	var created *entity.Room
-	err = useCase.DB.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		rooms := repository.NewRoomRepository(transaction)
-		members := repository.NewRoomMemberRepository(transaction)
-
+	err = useCase.Tx.WithinTransaction(ctx, func(ctx context.Context, rooms repository.RoomRepository, members repository.RoomMemberRepository) error {
 		again, err := rooms.FindDirectRoomByUserPair(ctx, userID, targetUserID)
 		if err != nil {
 			return err
@@ -171,9 +181,7 @@ func (useCase *RoomUseCase) CreateGroupRoom(ctx context.Context, createdBy uuid.
 	}
 
 	var created *entity.Room
-	err = useCase.DB.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
-		rooms := repository.NewRoomRepository(transaction)
-		members := repository.NewRoomMemberRepository(transaction)
+	err = useCase.Tx.WithinTransaction(ctx, func(ctx context.Context, rooms repository.RoomRepository, members repository.RoomMemberRepository) error {
 		n := name
 		now := time.Now().UTC()
 		room := &entity.Room{

@@ -22,6 +22,7 @@ type roomRepository struct {
 	db *gorm.DB
 }
 
+// NewRoomRepository はルーム永続化用リポジトリを返す。
 func NewRoomRepository(db *gorm.DB) RoomRepository {
 	return &roomRepository{db: db}
 }

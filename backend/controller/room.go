@@ -4,68 +4,24 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
-	"chat-app/entity"
 	"chat-app/usecase"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
+// RoomController はルーム関連の HTTP ハンドラ。
 type RoomController struct {
-	Rooms *usecase.RoomUseCase
+	Rooms RoomUseCase
 }
 
-func NewRoomController(rooms *usecase.RoomUseCase) *RoomController {
+// NewRoomController は RoomController を生成する。
+func NewRoomController(rooms RoomUseCase) *RoomController {
 	return &RoomController{Rooms: rooms}
 }
 
-// --- GET /rooms?user_id= ---
-
-type listRoomsResponse struct {
-	Rooms []roomJSON `json:"rooms"`
-}
-
-// --- POST /rooms/direct ---
-
-type createDirectRoomRequest struct {
-	UserID       string `json:"user_id"`
-	TargetUserID string `json:"target_user_id"`
-}
-
-// --- POST /rooms/groups ---
-
-type createGroupRoomRequest struct {
-	CreatedBy string   `json:"created_by"`
-	Name      string   `json:"name"`
-	MemberIDs []string `json:"member_ids"`
-}
-
-type roomJSON struct {
-	ID            uuid.UUID  `json:"id"`
-	Type          string     `json:"type"`
-	Name          *string    `json:"name,omitempty"`
-	DirectUserAID *uuid.UUID `json:"direct_user_a_id,omitempty"`
-	DirectUserBID *uuid.UUID `json:"direct_user_b_id,omitempty"`
-	CreatedBy     uuid.UUID  `json:"created_by"`
-	CreatedAt     string     `json:"created_at"`
-	UpdatedAt     string     `json:"updated_at"`
-}
-
-func roomToJSON(r *entity.Room) roomJSON {
-	return roomJSON{
-		ID:            r.ID,
-		Type:          string(r.Type),
-		Name:          r.Name,
-		DirectUserAID: r.DirectUserAID,
-		DirectUserBID: r.DirectUserBID,
-		CreatedBy:     r.CreatedBy,
-		CreatedAt:     r.CreatedAt.UTC().Format(time.RFC3339Nano),
-		UpdatedAt:     r.UpdatedAt.UTC().Format(time.RFC3339Nano),
-	}
-}
-
+// ListJoinedRooms は GET /rooms?user_id= で参加ルーム一覧を返す。
 func (h *RoomController) ListJoinedRooms(c echo.Context) error {
 	raw := c.QueryParam("user_id")
 	if raw == "" {
@@ -86,6 +42,7 @@ func (h *RoomController) ListJoinedRooms(c echo.Context) error {
 	return c.JSON(http.StatusOK, listRoomsResponse{Rooms: out})
 }
 
+// CreateDirectRoom は POST /rooms/direct で DM を作成または取得する。
 func (h *RoomController) CreateDirectRoom(c echo.Context) error {
 	var body createDirectRoomRequest
 	if err := c.Bind(&body); err != nil {
@@ -106,6 +63,7 @@ func (h *RoomController) CreateDirectRoom(c echo.Context) error {
 	return c.JSON(http.StatusOK, roomToJSON(room))
 }
 
+// CreateGroupRoom は POST /rooms/groups でグループルームを作成する。
 func (h *RoomController) CreateGroupRoom(c echo.Context) error {
 	var body createGroupRoomRequest
 	if err := c.Bind(&body); err != nil {
@@ -130,6 +88,7 @@ func (h *RoomController) CreateGroupRoom(c echo.Context) error {
 	return c.JSON(http.StatusCreated, roomToJSON(room))
 }
 
+// jsonError は JSON 形式のエラーレスポンスを返す。
 func jsonError(c echo.Context, code int, msg string) error {
 	return c.JSON(code, map[string]string{"error": msg})
 }
@@ -143,6 +102,7 @@ func usecaseErrorHTTP(err error) (int, string) {
 	switch {
 	case errors.Is(err, usecase.ErrInvalidUserID),
 		errors.Is(err, usecase.ErrInvalidCreatorID),
+		errors.Is(err, usecase.ErrInvalidRoomID),
 		errors.Is(err, usecase.ErrSelfDirect),
 		errors.Is(err, usecase.ErrGroupNameRequired),
 		errors.Is(err, usecase.ErrGroupTooFewMembers),

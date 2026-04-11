@@ -77,7 +77,8 @@ func TestRoomMember_IsActiveMember_FindByIDForActiveMember_Leave(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, nope)
 
-	require.NoError(t, members.Leave(ctx, room.ID, u.ID))
+	leftAt := time.Now().UTC()
+	require.NoError(t, members.Leave(ctx, room.ID, u.ID, leftAt))
 
 	ok2, err := members.IsActiveMember(ctx, room.ID, u.ID)
 	require.NoError(t, err)
@@ -87,7 +88,7 @@ func TestRoomMember_IsActiveMember_FindByIDForActiveMember_Leave(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, afterLeave)
 
-	err = members.Leave(ctx, room.ID, u.ID)
+	err = members.Leave(ctx, room.ID, u.ID, time.Now().UTC())
 	require.Error(t, err)
 	require.True(t, errors.Is(err, gorm.ErrRecordNotFound))
 }
@@ -201,7 +202,7 @@ func TestRoom_FindDirectRoomByUserPair_GroupOrThirdMemberExcluded(t *testing.T) 
 	require.NoError(t, err)
 	require.Nil(t, nilThree, "3 active members should not count as 1:1 direct")
 
-	require.NoError(t, members.Leave(ctx, dm.ID, c.ID))
+	require.NoError(t, members.Leave(ctx, dm.ID, c.ID, time.Now().UTC()))
 	found, err := rooms.FindDirectRoomByUserPair(ctx, a.ID, b.ID)
 	require.NoError(t, err)
 	require.NotNil(t, found)
