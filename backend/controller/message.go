@@ -8,7 +8,6 @@ import (
 
 	"chat-app/entity"
 	"chat-app/usecase"
-	"chat-app/wshub"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -17,11 +16,11 @@ import (
 // MessageController はメッセージ関連の HTTP ハンドラと作成時の WS 通知。
 type MessageController struct {
 	Messages MessageUseCase
-	Hub      *wshub.ConnectionManager
+	Hub      RoomBroadcastHub
 }
 
 // NewMessageController は MessageController を生成する。
-func NewMessageController(messages MessageUseCase, hub *wshub.ConnectionManager) *MessageController {
+func NewMessageController(messages MessageUseCase, hub RoomBroadcastHub) *MessageController {
 	return &MessageController{Messages: messages, Hub: hub}
 }
 

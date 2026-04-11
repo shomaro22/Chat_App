@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"chat-app/wshub"
-
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
@@ -16,17 +14,13 @@ import (
 
 // WSController は WebSocket 接続・ルーム購読・プレゼンス通知を扱う。
 type WSController struct {
-	Hub      *wshub.ConnectionManager
+	Hub      WebSocketHub
 	Rooms    RoomUseCase
 	Presence PresenceJoinedRooms
 }
 
-type presenceFanout interface {
-	BroadcastToUsersInRooms(roomIDs []uuid.UUID, payload []byte)
-}
-
 // NewWSController は WSController を生成する。Rooms は購読可否判定、Presence は配信先ルーム解決に使う。
-func NewWSController(hub *wshub.ConnectionManager, rooms RoomUseCase, presence PresenceJoinedRooms) *WSController {
+func NewWSController(hub WebSocketHub, rooms RoomUseCase, presence PresenceJoinedRooms) *WSController {
 	return &WSController{Hub: hub, Rooms: rooms, Presence: presence}
 }
 
@@ -160,7 +154,7 @@ func (w *WSController) writeJSON(connID uuid.UUID, v any) {
 }
 
 // broadcastPresenceUpdated はユーザーのオンライン状態を、参加ルームの購読者へ配信する。
-func broadcastPresenceUpdated(hub presenceFanout, rooms PresenceJoinedRooms, ctx context.Context, userID uuid.UUID, isOnline bool) {
+func broadcastPresenceUpdated(hub PresenceBroadcastHub, rooms PresenceJoinedRooms, ctx context.Context, userID uuid.UUID, isOnline bool) {
 	if hub == nil || rooms == nil {
 		return
 	}

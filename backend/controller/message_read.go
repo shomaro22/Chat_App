@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"chat-app/usecase"
-	"chat-app/wshub"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -15,11 +14,11 @@ import (
 // MessageReadController は既読更新の HTTP と WS 通知。
 type MessageReadController struct {
 	Reads MessageReadUseCase
-	Hub   *wshub.ConnectionManager
+	Hub   RoomBroadcastHub
 }
 
 // NewMessageReadController は MessageReadController を生成する。
-func NewMessageReadController(reads MessageReadUseCase, hub *wshub.ConnectionManager) *MessageReadController {
+func NewMessageReadController(reads MessageReadUseCase, hub RoomBroadcastHub) *MessageReadController {
 	return &MessageReadController{Reads: reads, Hub: hub}
 }
 
