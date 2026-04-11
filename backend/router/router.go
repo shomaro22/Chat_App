@@ -21,10 +21,15 @@ type Config struct {
 	ParseJWT        middleware.TokenParser
 	ValidateSession middleware.SessionValidator // nil 可（JWT のみ検証）
 	StaticDir       string                      // ローカルパス（/static で配信）
-	// PreAuthMiddleware はルート登録前に e.Use される（例: 公開 /auth のレート制限）。
+	// PreAuthMiddleware はルート登録前に e.Use される。
 	PreAuthMiddleware []echo.MiddlewareFunc
-	// APIMiddleware は JWT 直後の api グループに適用（例: /ws IP 制限・ユーザー別制限）。
-	APIMiddleware []echo.MiddlewareFunc
+	// RateLimitLogin / RateLimitRegister は該当 POST にだけ適用（空なら未適用）。
+	RateLimitLogin    []echo.MiddlewareFunc
+	RateLimitRegister []echo.MiddlewareFunc
+	// RateLimitMessage / RateLimitMedia / RateLimitWS は JWT 付きルートにだけ適用（空なら未適用）。
+	RateLimitMessage []echo.MiddlewareFunc
+	RateLimitMedia   []echo.MiddlewareFunc
+	RateLimitWS      []echo.MiddlewareFunc
 }
 
 // New はルーティング済み Echo を返す。/auth は公開、それ以外の API は JWT 必須、/admin は admin ロール必須。
@@ -43,17 +48,22 @@ func New(cfg Config) *echo.Echo {
 	}
 
 	if cfg.Auth != nil {
-		e.POST("/auth/login", cfg.Auth.Login)
-		e.POST("/auth/register", cfg.Auth.Register)
+		if len(cfg.RateLimitLogin) > 0 {
+			e.POST("/auth/login", cfg.Auth.Login, cfg.RateLimitLogin...)
+		} else {
+			e.POST("/auth/login", cfg.Auth.Login)
+		}
+		if len(cfg.RateLimitRegister) > 0 {
+			e.POST("/auth/register", cfg.Auth.Register, cfg.RateLimitRegister...)
+		} else {
+			e.POST("/auth/register", cfg.Auth.Register)
+		}
 	}
 
 	jwt := middleware.JWTAuth(cfg.ParseJWT, cfg.ValidateSession)
 
 	api := e.Group("")
 	api.Use(jwt)
-	for _, mw := range cfg.APIMiddleware {
-		api.Use(mw)
-	}
 	if cfg.Room != nil {
 		api.GET("/rooms", cfg.Room.ListJoinedRooms)
 		api.GET("/rooms/:id", cfg.Room.GetRoomDetail)
@@ -65,7 +75,11 @@ func New(cfg Config) *echo.Echo {
 		api.DELETE("/rooms/:id/members/:userId", cfg.Room.RemoveRoomMember)
 	}
 	if cfg.Messages != nil {
-		api.POST("/rooms/:id/messages", cfg.Messages.CreateMessage)
+		if len(cfg.RateLimitMessage) > 0 {
+			api.POST("/rooms/:id/messages", cfg.Messages.CreateMessage, cfg.RateLimitMessage...)
+		} else {
+			api.POST("/rooms/:id/messages", cfg.Messages.CreateMessage)
+		}
 		api.GET("/rooms/:id/messages", cfg.Messages.ListMessages)
 		api.DELETE("/messages/:id", cfg.Messages.DeleteMessage)
 	}
@@ -74,10 +88,18 @@ func New(cfg Config) *echo.Echo {
 		api.POST("/rooms/:id/read", cfg.Reads.MarkAsRead)
 	}
 	if cfg.Media != nil {
-		api.POST("/media/images", cfg.Media.UploadImage)
+		if len(cfg.RateLimitMedia) > 0 {
+			api.POST("/media/images", cfg.Media.UploadImage, cfg.RateLimitMedia...)
+		} else {
+			api.POST("/media/images", cfg.Media.UploadImage)
+		}
 	}
 	if cfg.WS != nil {
-		api.GET("/ws", cfg.WS.Handle)
+		if len(cfg.RateLimitWS) > 0 {
+			api.GET("/ws", cfg.WS.Handle, cfg.RateLimitWS...)
+		} else {
+			api.GET("/ws", cfg.WS.Handle)
+		}
 	}
 
 	if cfg.Admin != nil {

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"chat-app/auth"
@@ -21,7 +23,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
-	"golang.org/x/time/rate"
 )
 
 func main() {
@@ -67,6 +68,21 @@ func main() {
 
 	log.Printf("db ok; http %s", addr)
 
+	rdb, err := db.OpenRedis(context.Background())
+	if err != nil {
+		log.Fatalf("redis: %v", err)
+	}
+	rateLim := repository.NewFixedWindowRateLimiter(rdb)
+	if rdb != nil {
+		defer func() { _ = rdb.Close() }()
+		log.Printf("redis rate limit: connected (%s)", strings.TrimSpace(os.Getenv("REDIS_ADDR")))
+		if err := rateLim.LoadScript(context.Background()); err != nil {
+			log.Printf("redis SCRIPT LOAD (optional): %v", err)
+		}
+	} else {
+		log.Println("redis rate limit: disabled (REDIS_ADDR empty; all Allow pass-through)")
+	}
+
 	hub := wshub.NewConnectionManager()
 	users := repository.NewUserRepository(gormDB)
 	rooms := repository.NewRoomRepository(gormDB)
@@ -104,11 +120,7 @@ func main() {
 	mediaCtl := controller.NewMediaController(mediaUC)
 	adminCtl := controller.NewAdminController(adminUC, wsHubAdapter{hub}, hub, presenceUC)
 
-	loginRL := middleware.NewIPRateLimiter(rate.Every(time.Minute/20), 20)
-	registerRL := middleware.NewIPRateLimiter(rate.Every(time.Minute/10), 10)
-	wsRL := middleware.NewIPRateLimiter(rate.Every(time.Minute/30), 20)
-	userRL := middleware.NewUserRateLimiter(rate.Every(time.Minute/300), 120)
-
+	win1m := time.Minute
 	e := router.New(router.Config{
 		Auth:            authCtl,
 		Room:            roomCtl,
@@ -120,12 +132,20 @@ func main() {
 		ParseJWT:        authUC.ParseToken,
 		ValidateSession: validateSession,
 		StaticDir:       publicRoot,
-		PreAuthMiddleware: []echo.MiddlewareFunc{
-			middleware.PublicAuthRateLimit(loginRL, registerRL),
+		RateLimitLogin: []echo.MiddlewareFunc{
+			middleware.RedisLoginRateLimit(rateLim, 20, win1m),
 		},
-		APIMiddleware: []echo.MiddlewareFunc{
-			middleware.WSConnectIPRateLimit(wsRL),
-			middleware.AuthenticatedUserRateLimit(userRL),
+		RateLimitRegister: []echo.MiddlewareFunc{
+			middleware.RedisRegisterRateLimit(rateLim, 10, win1m),
+		},
+		RateLimitMessage: []echo.MiddlewareFunc{
+			middleware.RedisMessageSendRateLimit(rateLim, 60, win1m),
+		},
+		RateLimitMedia: []echo.MiddlewareFunc{
+			middleware.RedisMediaUploadRateLimit(rateLim, 30, win1m),
+		},
+		RateLimitWS: []echo.MiddlewareFunc{
+			middleware.RedisWSConnectRateLimit(rateLim, 30, win1m),
 		},
 	})
 	if err := e.Start(addr); err != nil {
