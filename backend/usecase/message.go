@@ -16,15 +16,26 @@ const (
 	maxMessageListLimit     = 100
 )
 
+// ListedMessage は一覧 API 向け（送信者名・任意で既読数）。
+type ListedMessage struct {
+	Message    entity.Message
+	SenderName string
+	ReadCount  *int64
+}
+
 type MessageUseCase struct {
 	MessageRepo    repository.MessageRepository
 	RoomMemberRepo repository.RoomMemberRepository
+	Users          repository.UserRepository
+	Rooms          repository.RoomRepository
 }
 
-func NewMessageUseCase(messages repository.MessageRepository, members repository.RoomMemberRepository) *MessageUseCase {
+func NewMessageUseCase(messages repository.MessageRepository, members repository.RoomMemberRepository, users repository.UserRepository, rooms repository.RoomRepository) *MessageUseCase {
 	return &MessageUseCase{
 		MessageRepo:    messages,
 		RoomMemberRepo: members,
+		Users:          users,
+		Rooms:          rooms,
 	}
 }
 
@@ -52,12 +63,15 @@ func (u *MessageUseCase) SendMessage(ctx context.Context, roomID, senderID uuid.
 	if content == nil && imageURL == nil {
 		return nil, ErrEmptyMessage
 	}
-	ok, err := u.RoomMemberRepo.IsActiveMember(ctx, roomID, senderID)
+	roomRow, err := u.Rooms.FindByIDForActiveMember(ctx, roomID, senderID)
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
+	if roomRow == nil {
 		return nil, ErrNotRoomMember
+	}
+	if roomRow.FrozenAt != nil {
+		return nil, ErrRoomFrozen
 	}
 	now := time.Now().UTC()
 	msg := &entity.Message{
@@ -73,11 +87,14 @@ func (u *MessageUseCase) SendMessage(ctx context.Context, roomID, senderID uuid.
 	if err := u.MessageRepo.Create(ctx, msg); err != nil {
 		return nil, err
 	}
+	if u.Rooms != nil {
+		_ = u.Rooms.UpdateUpdatedAt(ctx, roomID, now)
+	}
 	return msg, nil
 }
 
-// ListMessages は参加メンバーのみ、ルームのメッセージ履歴を取得する。
-func (u *MessageUseCase) ListMessages(ctx context.Context, roomID, userID uuid.UUID, beforeID *uuid.UUID, limit int) ([]entity.Message, error) {
+// ListMessages は参加メンバーのみメッセージ履歴を取得する。order_desc=false で昇順（古い順）。
+func (u *MessageUseCase) ListMessages(ctx context.Context, roomID, userID uuid.UUID, beforeID, afterID *uuid.UUID, limit int, orderDesc, includeReadCount bool) ([]ListedMessage, error) {
 	if roomID == uuid.Nil {
 		return nil, ErrInvalidRoomID
 	}
@@ -87,6 +104,9 @@ func (u *MessageUseCase) ListMessages(ctx context.Context, roomID, userID uuid.U
 	if beforeID != nil && *beforeID == uuid.Nil {
 		beforeID = nil
 	}
+	if afterID != nil && *afterID == uuid.Nil {
+		afterID = nil
+	}
 	limit = normalizeMessageListLimit(limit)
 	ok, err := u.RoomMemberRepo.IsActiveMember(ctx, roomID, userID)
 	if err != nil {
@@ -95,7 +115,51 @@ func (u *MessageUseCase) ListMessages(ctx context.Context, roomID, userID uuid.U
 	if !ok {
 		return nil, ErrNotRoomMember
 	}
-	return u.MessageRepo.ListByRoomID(ctx, roomID, beforeID, limit)
+	rows, err := u.MessageRepo.ListByRoomID(ctx, roomID, beforeID, afterID, limit, orderDesc)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	senderIDs := make([]uuid.UUID, 0, len(rows))
+	seen := make(map[uuid.UUID]struct{})
+	for i := range rows {
+		id := rows[i].SenderID
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		senderIDs = append(senderIDs, id)
+	}
+	var users []entity.User
+	if u.Users != nil {
+		users, err = u.Users.FindByIDs(ctx, senderIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	nameBy := make(map[uuid.UUID]string, len(users))
+	for i := range users {
+		nameBy[users[i].ID] = users[i].Name
+	}
+	out := make([]ListedMessage, 0, len(rows))
+	for i := range rows {
+		item := ListedMessage{
+			Message:    rows[i],
+			SenderName: nameBy[rows[i].SenderID],
+		}
+		if includeReadCount {
+			n, err := u.MessageRepo.CountReadersAtOrAfterMessage(ctx, roomID, rows[i].ID, rows[i].SenderID)
+			if err != nil {
+				return nil, err
+			}
+			v := n
+			item.ReadCount = &v
+		}
+		out = append(out, item)
+	}
+	return out, nil
 }
 
 func normalizeMessageListLimit(limit int) int {
@@ -108,26 +172,39 @@ func normalizeMessageListLimit(limit int) int {
 	return limit
 }
 
-// DeleteMessage は送信者本人によるメッセージの論理削除を行う。
-func (u *MessageUseCase) DeleteMessage(ctx context.Context, messageID, userID uuid.UUID) error {
+// DeleteMessage は送信者本人によるメッセージの論理削除を行う。戻り値の room_id は WS 通知用（既に削除済みの場合もルーム ID を返す）。
+func (u *MessageUseCase) DeleteMessage(ctx context.Context, messageID, userID uuid.UUID) (uuid.UUID, error) {
 	if messageID == uuid.Nil {
-		return ErrInvalidMessageID
+		return uuid.Nil, ErrInvalidMessageID
 	}
 	if userID == uuid.Nil {
-		return ErrInvalidUserID
+		return uuid.Nil, ErrInvalidUserID
 	}
 	msg, err := u.MessageRepo.FindByID(ctx, messageID)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	if msg == nil {
-		return ErrMessageNotFound
+		return uuid.Nil, ErrMessageNotFound
 	}
 	if msg.IsDeleted || msg.DeletedAt != nil {
-		return nil
+		return msg.RoomID, nil
 	}
 	if msg.SenderID != userID {
-		return ErrForbiddenMessageEdit
+		return uuid.Nil, ErrForbiddenMessageEdit
 	}
-	return u.MessageRepo.SoftDelete(ctx, messageID, time.Now().UTC())
+	roomRow, err := u.Rooms.FindByIDForActiveMember(ctx, msg.RoomID, userID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if roomRow == nil {
+		return uuid.Nil, ErrNotRoomMember
+	}
+	if roomRow.FrozenAt != nil {
+		return uuid.Nil, ErrRoomFrozen
+	}
+	if err := u.MessageRepo.SoftDelete(ctx, messageID, time.Now().UTC()); err != nil {
+		return uuid.Nil, err
+	}
+	return msg.RoomID, nil
 }

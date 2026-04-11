@@ -28,4 +28,22 @@ var (
 	ErrReadNotRoomMember        = errors.New("not active room member")
 	ErrReadMessageNotFound      = errors.New("read target message not found")
 	ErrReadMessageRoomMismatch  = errors.New("message does not belong to room")
+
+	ErrRoomNotFound    = errors.New("room not found")
+	ErrNotGroupRoom    = errors.New("not a group room")
+	ErrAlreadyMember   = errors.New("user is already an active member")
+	ErrForbiddenKick  = errors.New("forbidden to remove this member")
+	ErrMemberNotFound = errors.New("member not found in room")
+
+	ErrUnauthorized        = errors.New("unauthorized")
+	ErrInvalidCredentials  = errors.New("invalid email or password")
+	ErrRoomFrozen          = errors.New("room is frozen")
+	ErrForbiddenAdmin      = errors.New("admin only")
+	ErrInvalidDisplayName  = errors.New("name is required")
+	ErrWeakPassword        = errors.New("password must be at least 8 characters")
+	ErrEmailAlreadyInUse   = errors.New("email already in use")
+	ErrForbiddenRoomUpdate = errors.New("forbidden to update this room")
+
+	ErrUnsupportedMedia = errors.New("unsupported image type")
+	ErrUploadTooLarge   = errors.New("upload too large")
 )

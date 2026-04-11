@@ -22,6 +22,7 @@ func TestMessageReadUsecaseHTTP(t *testing.T) {
 		{usecase.ErrInvalidReadMessageID, http.StatusBadRequest},
 		{usecase.ErrReadMessageRoomMismatch, http.StatusBadRequest},
 		{usecase.ErrReadNotRoomMember, http.StatusForbidden},
+		{usecase.ErrRoomFrozen, http.StatusForbidden},
 		{usecase.ErrReadMessageNotFound, http.StatusNotFound},
 		{errors.New("db"), http.StatusInternalServerError},
 	}

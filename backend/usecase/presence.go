@@ -21,7 +21,7 @@ func NewPresenceUseCase(rooms repository.RoomRepository) *PresenceUseCase {
 
 // JoinedRoomIDs はユーザーがアクティブメンバーとして参加しているルーム ID の一覧を返す。
 func (u *PresenceUseCase) JoinedRoomIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
-	rooms, err := u.Rooms.ListJoinedRooms(ctx, userID, presenceJoinedRoomsLimit, 0)
+	rooms, err := u.Rooms.ListJoinedRooms(ctx, userID, presenceJoinedRoomsLimit, 0, true)
 	if err != nil {
 		return nil, err
 	}

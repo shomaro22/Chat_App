@@ -15,6 +15,8 @@ type Room struct {
 	CreatedBy     uuid.UUID  `gorm:"type:uuid;not null"`
 	CreatedAt     time.Time  `gorm:"not null"`
 	UpdatedAt     time.Time  `gorm:"not null"`
+	DeletedAt     *time.Time `gorm:"index"`
+	FrozenAt      *time.Time
 }
 
 func (Room) TableName() string { return "rooms" }

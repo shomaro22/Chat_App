@@ -61,6 +61,9 @@ func newRoomUseCase(gormDB *gorm.DB) *RoomUseCase {
 		repository.NewUserRepository(gormDB),
 		repository.NewRoomRepository(gormDB),
 		repository.NewRoomMemberRepository(gormDB),
+		repository.NewMessageRepository(gormDB),
+		repository.NewMessageReadRepository(gormDB),
+		nil,
 	)
 }
 

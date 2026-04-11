@@ -57,6 +57,13 @@ func (m *ConnectionManager) Register(userID uuid.UUID, conn *websocket.Conn) (co
 	return id, change
 }
 
+// IsUserOnline は当該ユーザーに少なくとも1件の接続があるかを返す。
+func (m *ConnectionManager) IsUserOnline(userID uuid.UUID) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.userConnCount[userID] > 0
+}
+
 func (m *ConnectionManager) RemoveConn(connID uuid.UUID) (change PresenceChange) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

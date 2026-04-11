@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"chat-app/entity"
 	"chat-app/usecase"
@@ -30,13 +31,13 @@ func (h *MessageController) CreateMessage(c echo.Context) error {
 	if err != nil {
 		return jsonError(c, http.StatusBadRequest, "invalid room id")
 	}
+	senderID, err := CurrentUserID(c)
+	if err != nil {
+		return err
+	}
 	var body createMessageRequest
 	if err := c.Bind(&body); err != nil {
 		return jsonError(c, http.StatusBadRequest, "invalid json body")
-	}
-	senderID, err := uuid.Parse(body.SenderID)
-	if err != nil {
-		return jsonError(c, http.StatusBadRequest, "invalid sender_id")
 	}
 	msg, err := h.Messages.SendMessage(c.Request().Context(), roomID, senderID, body.Content, body.ImageURL)
 	if err != nil {
@@ -62,19 +63,15 @@ func (h *MessageController) broadcastMessageCreated(msg *entity.Message) {
 	h.Hub.BroadcastToRoom(msg.RoomID, b)
 }
 
-// ListMessages は GET /rooms/:id/messages で履歴を返す。
+// ListMessages は GET /rooms/:id/messages で履歴を返す。order=asc|desc、include_read_count で既読人数を付与。
 func (h *MessageController) ListMessages(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return jsonError(c, http.StatusBadRequest, "invalid room id")
 	}
-	rawUser := c.QueryParam("user_id")
-	if rawUser == "" {
-		return jsonError(c, http.StatusBadRequest, "user_id is required")
-	}
-	userID, err := uuid.Parse(rawUser)
+	userID, err := CurrentUserID(c)
 	if err != nil {
-		return jsonError(c, http.StatusBadRequest, "invalid user_id")
+		return err
 	}
 	limit := 0
 	if raw := c.QueryParam("limit"); raw != "" {
@@ -92,33 +89,64 @@ func (h *MessageController) ListMessages(c echo.Context) error {
 		}
 		beforeID = &id
 	}
-	list, err := h.Messages.ListMessages(c.Request().Context(), roomID, userID, beforeID, limit)
+	var afterID *uuid.UUID
+	if raw := c.QueryParam("after_id"); raw != "" {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return jsonError(c, http.StatusBadRequest, "invalid after_id")
+		}
+		afterID = &id
+	}
+	orderDesc := true
+	if raw := strings.ToLower(strings.TrimSpace(c.QueryParam("order"))); raw == "asc" {
+		orderDesc = false
+	} else if raw == "desc" || raw == "" {
+		orderDesc = true
+	} else if raw != "" {
+		return jsonError(c, http.StatusBadRequest, "invalid order (use asc or desc)")
+	}
+	includeRead := false
+	if raw := strings.ToLower(c.QueryParam("include_read_count")); raw == "1" || raw == "true" {
+		includeRead = true
+	}
+	list, err := h.Messages.ListMessages(c.Request().Context(), roomID, userID, beforeID, afterID, limit, orderDesc, includeRead)
 	if err != nil {
 		return mapMessageUsecaseError(c, err)
 	}
-	out := make([]messageJSON, 0, len(list))
+	out := make([]listedMessageJSON, 0, len(list))
 	for i := range list {
-		out = append(out, messageToJSON(&list[i]))
+		out = append(out, listedMessageToJSON(list[i]))
 	}
-	return c.JSON(http.StatusOK, listMessagesResponse{Messages: out})
+	orderLabel := "desc"
+	if !orderDesc {
+		orderLabel = "asc"
+	}
+	return c.JSON(http.StatusOK, listMessagesResponse{Messages: out, Order: orderLabel})
 }
 
-// DeleteMessage は DELETE /messages/:id で論理削除する。
+// DeleteMessage は DELETE /messages/:id で論理削除し、WS で通知する。
 func (h *MessageController) DeleteMessage(c echo.Context) error {
 	messageID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return jsonError(c, http.StatusBadRequest, "invalid message id")
 	}
-	rawUser := c.QueryParam("user_id")
-	if rawUser == "" {
-		return jsonError(c, http.StatusBadRequest, "user_id is required")
-	}
-	userID, err := uuid.Parse(rawUser)
+	userID, err := CurrentUserID(c)
 	if err != nil {
-		return jsonError(c, http.StatusBadRequest, "invalid user_id")
+		return err
 	}
-	if err := h.Messages.DeleteMessage(c.Request().Context(), messageID, userID); err != nil {
+	roomID, err := h.Messages.DeleteMessage(c.Request().Context(), messageID, userID)
+	if err != nil {
 		return mapMessageUsecaseError(c, err)
+	}
+	if h.Hub != nil && roomID != uuid.Nil {
+		b, err := json.Marshal(messageDeletedWSBroadcast{
+			Type:      "message_deleted",
+			RoomID:    roomID,
+			MessageID: messageID,
+		})
+		if err == nil {
+			h.Hub.BroadcastToRoom(roomID, b)
+		}
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -137,7 +165,8 @@ func messageUsecaseHTTP(err error) (int, string) {
 		errors.Is(err, usecase.ErrInvalidUserID):
 		return http.StatusBadRequest, err.Error()
 	case errors.Is(err, usecase.ErrNotRoomMember),
-		errors.Is(err, usecase.ErrForbiddenMessageEdit):
+		errors.Is(err, usecase.ErrForbiddenMessageEdit),
+		errors.Is(err, usecase.ErrRoomFrozen):
 		return http.StatusForbidden, err.Error()
 	case errors.Is(err, usecase.ErrMessageNotFound):
 		return http.StatusNotFound, err.Error()
