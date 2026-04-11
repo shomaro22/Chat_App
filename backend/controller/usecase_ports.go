@@ -5,7 +5,6 @@ import (
 	"io"
 
 	"chat-app/entity"
-	"chat-app/usecase"
 
 	"github.com/google/uuid"
 )
@@ -21,8 +20,8 @@ type AuthUseCase interface {
 // RoomUseCase はルーム系ユースケースの抽象。
 type RoomUseCase interface {
 	GetJoinedRooms(ctx context.Context, userID uuid.UUID) ([]entity.Room, error)
-	GetJoinedRoomSummaries(ctx context.Context, userID uuid.UUID, limit, offset int, updatedDesc bool) ([]usecase.JoinedRoomSummary, error)
-	GetRoomDetail(ctx context.Context, roomID, requesterID uuid.UUID) (*usecase.RoomDetail, error)
+	GetJoinedRoomSummaries(ctx context.Context, userID uuid.UUID, limit, offset int, updatedDesc bool) ([]JoinedRoomSummary, error)
+	GetRoomDetail(ctx context.Context, roomID, requesterID uuid.UUID) (*RoomDetail, error)
 	AddGroupMember(ctx context.Context, roomID, actorID, newUserID uuid.UUID) error
 	RemoveRoomMember(ctx context.Context, roomID, actorID, targetUserID uuid.UUID) error
 	CreateOrGetDirectRoom(ctx context.Context, userID, targetUserID uuid.UUID) (*entity.Room, error)
@@ -36,14 +35,14 @@ type RoomUseCase interface {
 // MessageUseCase はメッセージ送受信・削除の抽象。
 type MessageUseCase interface {
 	SendMessage(ctx context.Context, roomID, senderID uuid.UUID, content, imageURL *string) (*entity.Message, error)
-	ListMessages(ctx context.Context, roomID, userID uuid.UUID, beforeID, afterID *uuid.UUID, limit int, orderDesc, includeReadCount bool) ([]usecase.ListedMessage, error)
+	ListMessages(ctx context.Context, roomID, userID uuid.UUID, beforeID, afterID *uuid.UUID, limit int, orderDesc, includeReadCount bool) ([]ListedMessage, error)
 	DeleteMessage(ctx context.Context, messageID, userID uuid.UUID) (uuid.UUID, error)
 }
 
 // MessageReadUseCase は既読更新・集計の抽象。
 type MessageReadUseCase interface {
-	MarkAsRead(ctx context.Context, userID, roomID, messageID uuid.UUID) (*usecase.MarkAsReadResult, error)
-	GetRoomReadState(ctx context.Context, userID, roomID uuid.UUID) (*usecase.RoomReadState, error)
+	MarkAsRead(ctx context.Context, userID, roomID, messageID uuid.UUID) (*MarkAsReadResult, error)
+	GetRoomReadState(ctx context.Context, userID, roomID uuid.UUID) (*RoomReadState, error)
 }
 
 // PresenceJoinedRooms はプレゼンス配信先ルーム一覧の解決用抽象。

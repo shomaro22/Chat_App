@@ -2,13 +2,11 @@ package controller
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"chat-app/entity"
-	"chat-app/usecase"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -50,7 +48,7 @@ func (h *MessageController) CreateMessage(c echo.Context) error {
 	}
 	msg, err := h.Messages.SendMessage(c.Request().Context(), roomID, senderID, body.Content, body.ImageURL)
 	if err != nil {
-		return mapMessageUsecaseError(c, err)
+		return mapDomainError(c, err)
 	}
 	h.broadcastMessageCreated(msg)
 	return c.JSON(http.StatusCreated, createMessageResponse{Message: messageToJSON(msg)})
@@ -95,7 +93,7 @@ func (h *MessageController) createMessageFromMultipart(c echo.Context, roomID, s
 
 	msg, err := h.Messages.SendMessage(c.Request().Context(), roomID, senderID, content, imageURL)
 	if err != nil {
-		return mapMessageUsecaseError(c, err)
+		return mapDomainError(c, err)
 	}
 	h.broadcastMessageCreated(msg)
 	return c.JSON(http.StatusCreated, createMessageResponse{Message: messageToJSON(msg)})
@@ -166,14 +164,14 @@ func (h *MessageController) ListMessages(c echo.Context) error {
 	}
 	effectiveLimit := limit
 	if effectiveLimit <= 0 {
-		effectiveLimit = usecase.DefaultMessageListLimit
+		effectiveLimit = DefaultMessageListLimit
 	}
-	if effectiveLimit > usecase.MaxMessageListLimit {
-		effectiveLimit = usecase.MaxMessageListLimit
+	if effectiveLimit > MaxMessageListLimit {
+		effectiveLimit = MaxMessageListLimit
 	}
 	list, err := h.Messages.ListMessages(c.Request().Context(), roomID, userID, beforeID, afterID, limit, orderDesc, includeRead)
 	if err != nil {
-		return mapMessageUsecaseError(c, err)
+		return mapDomainError(c, err)
 	}
 	out := make([]listedMessageJSON, 0, len(list))
 	for i := range list {
@@ -204,7 +202,7 @@ func (h *MessageController) DeleteMessage(c echo.Context) error {
 	}
 	roomID, err := h.Messages.DeleteMessage(c.Request().Context(), messageID, userID)
 	if err != nil {
-		return mapMessageUsecaseError(c, err)
+		return mapDomainError(c, err)
 	}
 	if h.Hub != nil && roomID != uuid.Nil {
 		b, err := json.Marshal(messageDeletedWSBroadcast{
@@ -218,28 +216,4 @@ func (h *MessageController) DeleteMessage(c echo.Context) error {
 		}
 	}
 	return c.NoContent(http.StatusNoContent)
-}
-
-func mapMessageUsecaseError(c echo.Context, err error) error {
-	status, msg := messageUsecaseHTTP(err)
-	return c.JSON(status, map[string]string{"error": msg})
-}
-
-func messageUsecaseHTTP(err error) (int, string) {
-	switch {
-	case errors.Is(err, usecase.ErrInvalidRoomID),
-		errors.Is(err, usecase.ErrInvalidMessageID),
-		errors.Is(err, usecase.ErrInvalidSenderID),
-		errors.Is(err, usecase.ErrEmptyMessage),
-		errors.Is(err, usecase.ErrInvalidUserID):
-		return http.StatusBadRequest, err.Error()
-	case errors.Is(err, usecase.ErrNotRoomMember),
-		errors.Is(err, usecase.ErrForbiddenMessageEdit),
-		errors.Is(err, usecase.ErrRoomFrozen):
-		return http.StatusForbidden, err.Error()
-	case errors.Is(err, usecase.ErrMessageNotFound):
-		return http.StatusNotFound, err.Error()
-	default:
-		return http.StatusInternalServerError, "internal server error"
-	}
 }

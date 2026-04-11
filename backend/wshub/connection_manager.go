@@ -64,13 +64,13 @@ func (m *ConnectionManager) IsUserOnline(userID uuid.UUID) bool {
 	return m.userConnCount[userID] > 0
 }
 
-func (m *ConnectionManager) RemoveConn(connID uuid.UUID) (change PresenceChange) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// removeConnLocked は mu がロック済みであること。登録を即時に外し、購読も解く（管理者切断と通常切断の共通処理）。
+func (m *ConnectionManager) removeConnLocked(connID uuid.UUID) (change PresenceChange, wsConn *websocket.Conn) {
 	c, ok := m.clients[connID]
 	if !ok {
-		return PresenceChange{}
+		return PresenceChange{}, nil
 	}
+	wsConn = c.conn
 	for roomID := range c.rooms {
 		if subs, ok := m.roomSubs[roomID]; ok {
 			delete(subs, connID)
@@ -88,9 +88,16 @@ func (m *ConnectionManager) RemoveConn(connID uuid.UUID) (change PresenceChange)
 		m.userConnCount[c.userID] = before - 1
 	}
 	if before == 1 {
-		return PresenceChange{Changed: true, UserID: c.userID, IsOnline: false}
+		return PresenceChange{Changed: true, UserID: c.userID, IsOnline: false}, wsConn
 	}
-	return PresenceChange{}
+	return PresenceChange{}, wsConn
+}
+
+func (m *ConnectionManager) RemoveConn(connID uuid.UUID) (change PresenceChange) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	change, _ = m.removeConnLocked(connID)
+	return change
 }
 
 func (m *ConnectionManager) Subscribe(connID, roomID uuid.UUID) {
@@ -187,6 +194,36 @@ func (m *ConnectionManager) SendPing(connID uuid.UUID) bool {
 	c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	err := c.conn.WriteMessage(websocket.PingMessage, nil)
 	return err == nil
+}
+
+// CloseUserConnections は指定ユーザーの接続をハブから即時に外し（購読も解く）、その後ソケットを閉じる。
+// 戻り値は「最後の接続が落ちた」等、RemoveConn と同様のプレゼンス境界（管理者切断後の presence_updated 用）。
+func (m *ConnectionManager) CloseUserConnections(userID uuid.UUID) (change PresenceChange) {
+	m.mu.Lock()
+	var ids []uuid.UUID
+	for id, c := range m.clients {
+		if c.userID == userID {
+			ids = append(ids, id)
+		}
+	}
+	var toClose []*websocket.Conn
+	var last PresenceChange
+	for _, id := range ids {
+		ch, conn := m.removeConnLocked(id)
+		if conn != nil {
+			toClose = append(toClose, conn)
+		}
+		if ch.Changed {
+			last = ch
+		}
+	}
+	m.mu.Unlock()
+	for _, conn := range toClose {
+		if conn != nil {
+			_ = conn.Close()
+		}
+	}
+	return last
 }
 
 func (m *ConnectionManager) WriteText(connID uuid.UUID, payload []byte) bool {

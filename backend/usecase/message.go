@@ -1,5 +1,12 @@
 package usecase
 
+// メッセージと画像の結合（API 契約）:
+//
+// 1. POST /media/images のレスポンスの url（/static/uploads/<uuid>.<ext>）だけを JSON の image_url に渡す。
+// 2. 許可パターン: テキストのみ / 画像のみ / テキスト＋画像（キャプション付き）。正規化後に両方欠けると ErrEmptyMessage。
+// 3. multipart/form-data では file と content を任意組み合わせ（少なくともどちらか必須）。file はサーバーが同形式の url に保存してメッセージに結合。
+// 4. image_url の形式検証は validateMessageImageURL（パストラバーサル禁止）。
+//
 import (
 	"context"
 	"strings"
@@ -25,18 +32,42 @@ type ListedMessage struct {
 	ReadCount  *int64
 }
 
+// PublicUploadDeleter は論理削除時に /static/uploads の実ファイルを消す実装（省略可）。
+type PublicUploadDeleter interface {
+	DeleteByPublicURL(urlPath string)
+}
+
 type MessageUseCase struct {
 	MessageRepo repository.MessageRepository
 	Users       repository.UserRepository
 	Rooms       repository.RoomRepository
+	Uploads     PublicUploadDeleter
 }
 
-func NewMessageUseCase(messages repository.MessageRepository, users repository.UserRepository, rooms repository.RoomRepository) *MessageUseCase {
+func NewMessageUseCase(messages repository.MessageRepository, users repository.UserRepository, rooms repository.RoomRepository, uploads PublicUploadDeleter) *MessageUseCase {
 	return &MessageUseCase{
 		MessageRepo: messages,
 		Users:       users,
 		Rooms:       rooms,
+		Uploads:     uploads,
 	}
+}
+
+// validateMessageImageURL は JSON /multipart 経由の image_url が当サービス発行パスか検証する。
+func validateMessageImageURL(u *string) error {
+	if u == nil || *u == "" {
+		return nil
+	}
+	p := strings.TrimSpace(*u)
+	const prefix = "/static/uploads/"
+	if !strings.HasPrefix(p, prefix) {
+		return ErrInvalidImageURL
+	}
+	name := strings.TrimPrefix(p, prefix)
+	if name == "" || strings.Contains(name, "..") {
+		return ErrInvalidImageURL
+	}
+	return nil
 }
 
 func normalizeOptionalString(s *string) *string {
@@ -63,12 +94,11 @@ func (u *MessageUseCase) SendMessage(ctx context.Context, roomID, senderID uuid.
 	if content == nil && imageURL == nil {
 		return nil, ErrEmptyMessage
 	}
-	roomRow, err := RoomForActiveMember(ctx, u.Rooms, roomID, senderID)
-	if err != nil {
+	if err := validateMessageImageURL(imageURL); err != nil {
 		return nil, err
 	}
-	if roomRow.FrozenAt != nil {
-		return nil, ErrRoomFrozen
+	if _, err := RoomForActiveMemberWritable(ctx, u.Rooms, roomID, senderID); err != nil {
+		return nil, err
 	}
 	now := time.Now().UTC()
 	msg := &entity.Message{
@@ -186,15 +216,14 @@ func (u *MessageUseCase) DeleteMessage(ctx context.Context, messageID, userID uu
 	if msg.SenderID != userID {
 		return uuid.Nil, ErrForbiddenMessageEdit
 	}
-	roomRow, err := RoomForActiveMember(ctx, u.Rooms, msg.RoomID, userID)
-	if err != nil {
+	if _, err := RoomForActiveMemberWritable(ctx, u.Rooms, msg.RoomID, userID); err != nil {
 		return uuid.Nil, err
-	}
-	if roomRow.FrozenAt != nil {
-		return uuid.Nil, ErrRoomFrozen
 	}
 	if err := u.MessageRepo.SoftDelete(ctx, messageID, time.Now().UTC()); err != nil {
 		return uuid.Nil, err
+	}
+	if u.Uploads != nil && msg.ImageURL != nil && *msg.ImageURL != "" {
+		u.Uploads.DeleteByPublicURL(*msg.ImageURL)
 	}
 	return msg.RoomID, nil
 }

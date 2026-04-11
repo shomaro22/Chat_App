@@ -14,22 +14,24 @@ import (
 
 func TestMessageReadUsecaseHTTP(t *testing.T) {
 	tests := []struct {
-		err  error
-		want int
+		err        error
+		wantStatus int
+		wantCode   string
 	}{
-		{usecase.ErrInvalidMessageReadUserID, http.StatusBadRequest},
-		{usecase.ErrInvalidMessageReadRoomID, http.StatusBadRequest},
-		{usecase.ErrInvalidReadMessageID, http.StatusBadRequest},
-		{usecase.ErrReadMessageRoomMismatch, http.StatusBadRequest},
-		{usecase.ErrReadNotRoomMember, http.StatusForbidden},
-		{usecase.ErrRoomFrozen, http.StatusForbidden},
-		{usecase.ErrReadMessageNotFound, http.StatusNotFound},
-		{errors.New("db"), http.StatusInternalServerError},
+		{usecase.ErrInvalidUserID, http.StatusBadRequest, APICodeInvalidUserID},
+		{usecase.ErrInvalidRoomID, http.StatusBadRequest, APICodeInvalidRoomID},
+		{usecase.ErrInvalidReadMessageID, http.StatusBadRequest, APICodeInvalidReadMessageID},
+		{usecase.ErrReadMessageRoomMismatch, http.StatusBadRequest, APICodeReadMessageRoomMismatch},
+		{usecase.ErrNotRoomMember, http.StatusForbidden, APICodeNotRoomMember},
+		{usecase.ErrRoomFrozen, http.StatusForbidden, APICodeRoomFrozen},
+		{usecase.ErrReadMessageNotFound, http.StatusNotFound, APICodeReadMessageNotFound},
+		{errors.New("db"), http.StatusInternalServerError, APICodeInternal},
 	}
 	for _, tt := range tests {
-		code, msg := messageReadUsecaseHTTP(tt.err)
-		require.Equal(t, tt.want, code)
-		if tt.want == http.StatusInternalServerError {
+		status, code, msg := domainErrHTTP(tt.err)
+		require.Equal(t, tt.wantStatus, status)
+		require.Equal(t, tt.wantCode, code)
+		if tt.wantStatus == http.StatusInternalServerError {
 			require.Equal(t, "internal server error", msg)
 		} else {
 			require.Equal(t, tt.err.Error(), msg)
@@ -42,7 +44,7 @@ func TestReadUpdatedPayloadJSON(t *testing.T) {
 	uid := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	mid := uuid.MustParse("33333333-3333-3333-3333-333333333333")
 	b, err := json.Marshal(readUpdatedPayload{
-		Type:              WSEventMessageRead,
+		Type:              WSEventReadUpdated,
 		SchemaVersion:     WSEventSchemaVersion,
 		RoomID:            rid,
 		UserID:            uid,
@@ -51,7 +53,7 @@ func TestReadUpdatedPayloadJSON(t *testing.T) {
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(b, &out))
-	require.Equal(t, WSEventMessageRead, out["type"])
+	require.Equal(t, WSEventReadUpdated, out["type"])
 	require.EqualValues(t, WSEventSchemaVersion, out["schema_version"])
 	require.Equal(t, rid.String(), out["room_id"])
 	require.Equal(t, uid.String(), out["user_id"])

@@ -1,12 +1,9 @@
 package controller
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
-
-	"chat-app/usecase"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -58,7 +55,7 @@ func (h *RoomController) ListJoinedRooms(c echo.Context) error {
 	}
 	summaries, err := h.Rooms.GetJoinedRoomSummaries(c.Request().Context(), uid, limit, offset, updatedDesc)
 	if err != nil {
-		return mapUsecaseError(c, err)
+		return mapDomainError(c, err)
 	}
 	out := make([]roomListItemJSON, 0, len(summaries))
 	for i := range summaries {
@@ -66,7 +63,7 @@ func (h *RoomController) ListJoinedRooms(c echo.Context) error {
 	}
 	effectiveLimit := limit
 	if effectiveLimit <= 0 {
-		effectiveLimit = usecase.DefaultJoinedRoomsLimit
+		effectiveLimit = DefaultJoinedRoomsLimit
 	}
 	return c.JSON(http.StatusOK, listRoomsEnrichedResponse{Rooms: out, Sort: sortLabel, Limit: effectiveLimit, Offset: offset})
 }
@@ -83,7 +80,7 @@ func (h *RoomController) GetRoomDetail(c echo.Context) error {
 	}
 	detail, err := h.Rooms.GetRoomDetail(c.Request().Context(), roomID, uid)
 	if err != nil {
-		return mapUsecaseError(c, err)
+		return mapDomainError(c, err)
 	}
 	return c.JSON(http.StatusOK, roomDetailToJSON(detail))
 }
@@ -107,7 +104,7 @@ func (h *RoomController) AddRoomMember(c echo.Context) error {
 		return jsonError(c, http.StatusBadRequest, "invalid member_id")
 	}
 	if err := h.Rooms.AddGroupMember(c.Request().Context(), roomID, actorID, memberID); err != nil {
-		return mapUsecaseError(c, err)
+		return mapDomainError(c, err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -127,7 +124,7 @@ func (h *RoomController) RemoveRoomMember(c echo.Context) error {
 		return err
 	}
 	if err := h.Rooms.RemoveRoomMember(c.Request().Context(), roomID, actorID, targetID); err != nil {
-		return mapUsecaseError(c, err)
+		return mapDomainError(c, err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -147,7 +144,7 @@ func (h *RoomController) UpdateGroupRoom(c echo.Context) error {
 		return jsonError(c, http.StatusBadRequest, "invalid json body")
 	}
 	if err := h.Rooms.UpdateGroupName(c.Request().Context(), roomID, actorID, body.Name); err != nil {
-		return mapUsecaseError(c, err)
+		return mapDomainError(c, err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -163,7 +160,7 @@ func (h *RoomController) CloseRoom(c echo.Context) error {
 		return err
 	}
 	if err := h.Rooms.CloseRoom(c.Request().Context(), roomID, actorID); err != nil {
-		return mapUsecaseError(c, err)
+		return mapDomainError(c, err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -184,7 +181,7 @@ func (h *RoomController) CreateDirectRoom(c echo.Context) error {
 	}
 	room, err := h.Rooms.CreateOrGetDirectRoom(c.Request().Context(), userID, targetID)
 	if err != nil {
-		return mapUsecaseError(c, err)
+		return mapDomainError(c, err)
 	}
 	return c.JSON(http.StatusOK, roomToJSON(room))
 }
@@ -209,7 +206,7 @@ func (h *RoomController) CreateGroupRoom(c echo.Context) error {
 	}
 	room, err := h.Rooms.CreateGroupRoom(c.Request().Context(), createdBy, body.Name, memberIDs)
 	if err != nil {
-		return mapUsecaseError(c, err)
+		return mapDomainError(c, err)
 	}
 	return c.JSON(http.StatusCreated, roomToJSON(room))
 }
@@ -217,38 +214,4 @@ func (h *RoomController) CreateGroupRoom(c echo.Context) error {
 // jsonError は JSON 形式のエラーレスポンスを返す。
 func jsonError(c echo.Context, code int, msg string) error {
 	return c.JSON(code, map[string]string{"error": msg})
-}
-
-func mapUsecaseError(c echo.Context, err error) error {
-	status, msg := usecaseErrorHTTP(err)
-	return c.JSON(status, map[string]string{"error": msg})
-}
-
-func usecaseErrorHTTP(err error) (int, string) {
-	switch {
-	case errors.Is(err, usecase.ErrInvalidUserID),
-		errors.Is(err, usecase.ErrInvalidCreatorID),
-		errors.Is(err, usecase.ErrInvalidRoomID),
-		errors.Is(err, usecase.ErrSelfDirect),
-		errors.Is(err, usecase.ErrGroupNameRequired),
-		errors.Is(err, usecase.ErrGroupTooFewMembers),
-		errors.Is(err, usecase.ErrInvalidGroupMembers),
-		errors.Is(err, usecase.ErrNotGroupRoom):
-		return http.StatusBadRequest, err.Error()
-	case errors.Is(err, usecase.ErrUserNotFound),
-		errors.Is(err, usecase.ErrTargetUserNotFound),
-		errors.Is(err, usecase.ErrRoomNotFound),
-		errors.Is(err, usecase.ErrMemberNotFound):
-		return http.StatusNotFound, err.Error()
-	case errors.Is(err, usecase.ErrInactiveUser),
-		errors.Is(err, usecase.ErrNotRoomMember),
-		errors.Is(err, usecase.ErrForbiddenKick),
-		errors.Is(err, usecase.ErrRoomFrozen),
-		errors.Is(err, usecase.ErrForbiddenRoomUpdate):
-		return http.StatusForbidden, err.Error()
-	case errors.Is(err, usecase.ErrAlreadyMember):
-		return http.StatusConflict, err.Error()
-	default:
-		return http.StatusInternalServerError, "internal server error"
-	}
 }

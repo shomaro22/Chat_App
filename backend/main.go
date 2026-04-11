@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"chat-app/auth"
 	"chat-app/controller"
@@ -20,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
+	"golang.org/x/time/rate"
 )
 
 func main() {
@@ -76,13 +78,13 @@ func main() {
 	tokenSvc := auth.NewTokenService([]byte(jwtSecret), auth.DefaultTokenTTL)
 	authUC := usecase.NewAuthUseCase(users, tokenSvc)
 	roomUC := usecase.NewRoomUseCase(roomTx, users, rooms, members, msgRepo, readRepo, hubOnlineLookup{hub})
-	msgUC := usecase.NewMessageUseCase(msgRepo, users, rooms)
+	mediaUC := usecase.NewMediaUseCase(publicRoot)
+	msgUC := usecase.NewMessageUseCase(msgRepo, users, rooms, mediaUC)
 	readUC := usecase.NewMessageReadUseCase(msgRepo, readRepo, rooms, users)
 	presenceUC := usecase.NewPresenceUseCase(rooms)
-	mediaUC := usecase.NewMediaUseCase(publicRoot)
 	adminUC := usecase.NewAdminUseCase(users, rooms, members)
 
-	roomCtl := controller.NewRoomController(roomUC)
+	roomCtl := controller.NewRoomController(controller.NewRoomUseCaseAdapter(roomUC))
 	validateSession := func(c echo.Context, uid uuid.UUID, _ entity.UserRole) error {
 		u, err := auth.RequireActiveUser(c.Request().Context(), users, uid)
 		if err != nil {
@@ -95,12 +97,17 @@ func main() {
 		return nil
 	}
 
-	msgCtl := controller.NewMessageController(msgUC, hub, mediaUC)
-	readCtl := controller.NewMessageReadController(readUC, hub)
-	wsCtl := controller.NewWSController(wsHubAdapter{hub}, roomUC, presenceUC)
+	msgCtl := controller.NewMessageController(controller.NewMessageUseCaseAdapter(msgUC), hub, mediaUC)
+	readCtl := controller.NewMessageReadController(controller.NewMessageReadUseCaseAdapter(readUC), hub)
+	wsCtl := controller.NewWSController(wsHubAdapter{hub}, controller.NewRoomUseCaseAdapter(roomUC), presenceUC)
 	authCtl := controller.NewAuthController(authUC, bootstrapAdmin)
 	mediaCtl := controller.NewMediaController(mediaUC)
-	adminCtl := controller.NewAdminController(adminUC)
+	adminCtl := controller.NewAdminController(adminUC, wsHubAdapter{hub}, hub, presenceUC)
+
+	loginRL := middleware.NewIPRateLimiter(rate.Every(time.Minute/20), 20)
+	registerRL := middleware.NewIPRateLimiter(rate.Every(time.Minute/10), 10)
+	wsRL := middleware.NewIPRateLimiter(rate.Every(time.Minute/30), 20)
+	userRL := middleware.NewUserRateLimiter(rate.Every(time.Minute/300), 120)
 
 	e := router.New(router.Config{
 		Auth:            authCtl,
@@ -113,6 +120,13 @@ func main() {
 		ParseJWT:        authUC.ParseToken,
 		ValidateSession: validateSession,
 		StaticDir:       publicRoot,
+		PreAuthMiddleware: []echo.MiddlewareFunc{
+			middleware.PublicAuthRateLimit(loginRL, registerRL),
+		},
+		APIMiddleware: []echo.MiddlewareFunc{
+			middleware.WSConnectIPRateLimit(wsRL),
+			middleware.AuthenticatedUserRateLimit(userRL),
+		},
 	})
 	if err := e.Start(addr); err != nil {
 		log.Fatal(err)
@@ -129,6 +143,11 @@ func (a wsHubAdapter) Register(userID uuid.UUID, conn *websocket.Conn) (uuid.UUI
 
 func (a wsHubAdapter) RemoveConn(connID uuid.UUID) controller.HubPresenceChange {
 	ch := a.ConnectionManager.RemoveConn(connID)
+	return controller.HubPresenceChange{Changed: ch.Changed, UserID: ch.UserID, IsOnline: ch.IsOnline}
+}
+
+func (a wsHubAdapter) CloseUserConnections(userID uuid.UUID) controller.HubPresenceChange {
+	ch := a.ConnectionManager.CloseUserConnections(userID)
 	return controller.HubPresenceChange{Changed: ch.Changed, UserID: ch.UserID, IsOnline: ch.IsOnline}
 }
 

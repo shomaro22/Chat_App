@@ -4,13 +4,15 @@ import (
 	"time"
 
 	"chat-app/entity"
-	"chat-app/usecase"
 
 	"github.com/google/uuid"
 )
 
 // --- メッセージ CRUD / 一覧 ---
 
+// createMessageRequest は POST /rooms/:id/messages（JSON）用。
+// content と image_url はどちらか一方以上必須。併用可（キャプション付き画像）。
+// image_url は POST /media/images のレスポンス url（/static/uploads/... のみ許可）をそのまま渡す。
 type createMessageRequest struct {
 	Content  *string `json:"content"`
 	ImageURL *string `json:"image_url"`
@@ -45,7 +47,7 @@ type messageJSON struct {
 	CreatedAt string    `json:"created_at"`
 }
 
-// messageDeletedWSBroadcast は message.deleted の WS イベント用。
+// messageDeletedWSBroadcast は message_deleted の WS イベント用。
 type messageDeletedWSBroadcast struct {
 	Type          string    `json:"type"`
 	SchemaVersion int       `json:"schema_version"`
@@ -53,7 +55,7 @@ type messageDeletedWSBroadcast struct {
 	MessageID     uuid.UUID `json:"message_id"`
 }
 
-// messageCreatedWSBroadcast は message.created イベント用 JSON。
+// messageCreatedWSBroadcast は message_created イベント用 JSON。
 type messageCreatedWSBroadcast struct {
 	Type          string      `json:"type"`
 	SchemaVersion int         `json:"schema_version"`
@@ -61,7 +63,7 @@ type messageCreatedWSBroadcast struct {
 	Message       messageJSON `json:"message"`
 }
 
-func listedMessageToJSON(m usecase.ListedMessage) listedMessageJSON {
+func listedMessageToJSON(m ListedMessage) listedMessageJSON {
 	return listedMessageJSON{
 		messageJSON: messageToJSON(&m.Message),
 		SenderName:  m.SenderName,
@@ -101,7 +103,7 @@ type markAsReadRequest struct {
 	MessageID string `json:"message_id"`
 }
 
-// readUpdatedPayload は message.read イベント用 JSON。
+// readUpdatedPayload は read_updated イベント用 JSON。
 type readUpdatedPayload struct {
 	Type              string    `json:"type"`
 	SchemaVersion     int       `json:"schema_version"`
@@ -123,7 +125,7 @@ type roomReadStateJSON struct {
 	MemberReads         []memberReadBriefJSON `json:"member_reads"`
 }
 
-func roomReadStateToJSON(s *usecase.RoomReadState) roomReadStateJSON {
+func roomReadStateToJSON(s *RoomReadState) roomReadStateJSON {
 	if s == nil {
 		return roomReadStateJSON{}
 	}

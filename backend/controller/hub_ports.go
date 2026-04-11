@@ -31,4 +31,10 @@ type WebSocketHub interface {
 	WriteText(connID uuid.UUID, payload []byte) bool
 	SendPing(connID uuid.UUID) bool
 	BroadcastToUsersInRooms(roomIDs []uuid.UUID, payload []byte)
+	CloseUserConnections(userID uuid.UUID) HubPresenceChange
+}
+
+// UserConnectionCloser は管理者による強制切断などに使う最小インターフェース。
+type UserConnectionCloser interface {
+	CloseUserConnections(userID uuid.UUID) HubPresenceChange
 }

@@ -12,24 +12,26 @@ import (
 
 func TestMessageUsecaseHTTP(t *testing.T) {
 	tests := []struct {
-		err  error
-		want int
+		err        error
+		wantStatus int
+		wantCode   string
 	}{
-		{usecase.ErrInvalidRoomID, http.StatusBadRequest},
-		{usecase.ErrInvalidMessageID, http.StatusBadRequest},
-		{usecase.ErrInvalidSenderID, http.StatusBadRequest},
-		{usecase.ErrEmptyMessage, http.StatusBadRequest},
-		{usecase.ErrInvalidUserID, http.StatusBadRequest},
-		{usecase.ErrNotRoomMember, http.StatusForbidden},
-		{usecase.ErrForbiddenMessageEdit, http.StatusForbidden},
-		{usecase.ErrRoomFrozen, http.StatusForbidden},
-		{usecase.ErrMessageNotFound, http.StatusNotFound},
-		{errors.New("db exploded"), http.StatusInternalServerError},
+		{usecase.ErrInvalidRoomID, http.StatusBadRequest, APICodeInvalidRoomID},
+		{usecase.ErrInvalidMessageID, http.StatusBadRequest, APICodeInvalidMessageID},
+		{usecase.ErrInvalidSenderID, http.StatusBadRequest, APICodeInvalidSenderID},
+		{usecase.ErrEmptyMessage, http.StatusBadRequest, APICodeEmptyMessage},
+		{usecase.ErrInvalidUserID, http.StatusBadRequest, APICodeInvalidUserID},
+		{usecase.ErrNotRoomMember, http.StatusForbidden, APICodeNotRoomMember},
+		{usecase.ErrForbiddenMessageEdit, http.StatusForbidden, APICodeForbiddenMessageEdit},
+		{usecase.ErrRoomFrozen, http.StatusForbidden, APICodeRoomFrozen},
+		{usecase.ErrMessageNotFound, http.StatusNotFound, APICodeMessageNotFound},
+		{errors.New("db exploded"), http.StatusInternalServerError, APICodeInternal},
 	}
 	for _, tt := range tests {
-		code, msg := messageUsecaseHTTP(tt.err)
-		require.Equal(t, tt.want, code)
-		if tt.want == http.StatusInternalServerError {
+		status, code, msg := domainErrHTTP(tt.err)
+		require.Equal(t, tt.wantStatus, status)
+		require.Equal(t, tt.wantCode, code)
+		if tt.wantStatus == http.StatusInternalServerError {
 			require.Equal(t, "internal server error", msg)
 		} else {
 			require.Equal(t, tt.err.Error(), msg)

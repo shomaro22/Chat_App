@@ -21,12 +21,19 @@ type Config struct {
 	ParseJWT        middleware.TokenParser
 	ValidateSession middleware.SessionValidator // nil 可（JWT のみ検証）
 	StaticDir       string                      // ローカルパス（/static で配信）
+	// PreAuthMiddleware はルート登録前に e.Use される（例: 公開 /auth のレート制限）。
+	PreAuthMiddleware []echo.MiddlewareFunc
+	// APIMiddleware は JWT 直後の api グループに適用（例: /ws IP 制限・ユーザー別制限）。
+	APIMiddleware []echo.MiddlewareFunc
 }
 
 // New はルーティング済み Echo を返す。/auth は公開、それ以外の API は JWT 必須、/admin は admin ロール必須。
 func New(cfg Config) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
+	for _, mw := range cfg.PreAuthMiddleware {
+		e.Use(mw)
+	}
 	e.GET("/health", func(c echo.Context) error {
 		return c.String(http.StatusOK, "ok")
 	})
@@ -44,6 +51,9 @@ func New(cfg Config) *echo.Echo {
 
 	api := e.Group("")
 	api.Use(jwt)
+	for _, mw := range cfg.APIMiddleware {
+		api.Use(mw)
+	}
 	if cfg.Room != nil {
 		api.GET("/rooms", cfg.Room.ListJoinedRooms)
 		api.GET("/rooms/:id", cfg.Room.GetRoomDetail)

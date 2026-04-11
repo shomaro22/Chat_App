@@ -92,14 +92,7 @@ func (useCase *RoomUseCase) IsActiveRoomMember(ctx context.Context, roomID, user
 // CanSubscribeWebSocket は論理削除されていないルームのアクティブメンバーかつ未凍結のとき nil。
 // 凍結ルームはリアルタイム購読不可（HTTP での閲覧は ListMessages 等で可）。
 func (useCase *RoomUseCase) CanSubscribeWebSocket(ctx context.Context, roomID, userID uuid.UUID) error {
-	r, err := RoomForActiveMember(ctx, useCase.Rooms, roomID, userID)
-	if err != nil {
-		return err
-	}
-	if r.FrozenAt != nil {
-		return ErrRoomFrozen
-	}
-	return nil
+	return RoomForWebSocketSubscribe(ctx, useCase.Rooms, roomID, userID)
 }
 
 // CreateOrGetDirectRoom は1対1 DM を返す。未作成なら作成し、既存ならそれを返す。
@@ -366,15 +359,9 @@ func (useCase *RoomUseCase) GetJoinedRoomSummaries(ctx context.Context, userID u
 
 // GetRoomDetail はルーム基本情報・メンバー・DM 相手・自分の最終既読を返す。
 func (useCase *RoomUseCase) GetRoomDetail(ctx context.Context, roomID, requesterID uuid.UUID) (*RoomDetail, error) {
-	if roomID == uuid.Nil || requesterID == uuid.Nil {
-		return nil, ErrInvalidUserID
-	}
-	room, err := useCase.Rooms.FindByIDForActiveMember(ctx, roomID, requesterID)
+	room, err := RoomForActiveMember(ctx, useCase.Rooms, roomID, requesterID)
 	if err != nil {
 		return nil, err
-	}
-	if room == nil {
-		return nil, ErrNotRoomMember
 	}
 	memRows, err := useCase.Members.ListActiveMembers(ctx, roomID)
 	if err != nil {
