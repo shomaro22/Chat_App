@@ -38,18 +38,14 @@ const (
 	wsDBOpTimeout  = 5 * time.Second
 )
 
-// Handle は GET /ws で WebSocket を確立し、メッセージループを回す。
+// Handle は GET /ws で WebSocket を確立し、メッセージループを回す。認証は JWT ミドルウェア（Bearer または access_token）で行う。
 func (w *WSController) Handle(c echo.Context) error {
 	if w.Hub == nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "websocket hub not configured")
 	}
-	raw := c.QueryParam("user_id")
-	if raw == "" {
-		return jsonError(c, http.StatusBadRequest, "user_id is required")
-	}
-	userID, err := uuid.Parse(raw)
+	userID, err := CurrentUserID(c)
 	if err != nil {
-		return jsonError(c, http.StatusBadRequest, "invalid user_id")
+		return err
 	}
 
 	conn, err := wsUpgrader.Upgrade(c.Response(), c.Request(), nil)

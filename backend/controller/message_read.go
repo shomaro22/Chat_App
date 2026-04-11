@@ -22,19 +22,36 @@ func NewMessageReadController(reads MessageReadUseCase, hub RoomBroadcastHub) *M
 	return &MessageReadController{Reads: reads, Hub: hub}
 }
 
+// GetRoomReadState は GET /rooms/:id/read-state で未読数・既読概要を返す。
+func (h *MessageReadController) GetRoomReadState(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return jsonError(c, http.StatusBadRequest, "invalid room id")
+	}
+	userID, err := CurrentUserID(c)
+	if err != nil {
+		return err
+	}
+	state, err := h.Reads.GetRoomReadState(c.Request().Context(), userID, roomID)
+	if err != nil {
+		return mapMessageReadUsecaseError(c, err)
+	}
+	return c.JSON(http.StatusOK, roomReadStateToJSON(state))
+}
+
 // MarkAsRead は POST /rooms/:id/read で最終既読を更新する。
 func (h *MessageReadController) MarkAsRead(c echo.Context) error {
 	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return jsonError(c, http.StatusBadRequest, "invalid room id")
 	}
+	userID, err := CurrentUserID(c)
+	if err != nil {
+		return err
+	}
 	var body markAsReadRequest
 	if err := c.Bind(&body); err != nil {
 		return jsonError(c, http.StatusBadRequest, "invalid json body")
-	}
-	userID, err := uuid.Parse(body.UserID)
-	if err != nil {
-		return jsonError(c, http.StatusBadRequest, "invalid user_id")
 	}
 	messageID, err := uuid.Parse(body.MessageID)
 	if err != nil {
@@ -78,7 +95,8 @@ func messageReadUsecaseHTTP(err error) (int, string) {
 		errors.Is(err, usecase.ErrInvalidReadMessageID),
 		errors.Is(err, usecase.ErrReadMessageRoomMismatch):
 		return http.StatusBadRequest, err.Error()
-	case errors.Is(err, usecase.ErrReadNotRoomMember):
+	case errors.Is(err, usecase.ErrReadNotRoomMember),
+		errors.Is(err, usecase.ErrRoomFrozen):
 		return http.StatusForbidden, err.Error()
 	case errors.Is(err, usecase.ErrReadMessageNotFound):
 		return http.StatusNotFound, err.Error()

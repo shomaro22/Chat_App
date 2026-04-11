@@ -22,6 +22,7 @@ func TestMessageUsecaseHTTP(t *testing.T) {
 		{usecase.ErrInvalidUserID, http.StatusBadRequest},
 		{usecase.ErrNotRoomMember, http.StatusForbidden},
 		{usecase.ErrForbiddenMessageEdit, http.StatusForbidden},
+		{usecase.ErrRoomFrozen, http.StatusForbidden},
 		{usecase.ErrMessageNotFound, http.StatusNotFound},
 		{errors.New("db exploded"), http.StatusInternalServerError},
 	}

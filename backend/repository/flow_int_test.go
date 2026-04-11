@@ -122,7 +122,7 @@ func TestIntegration_Flow(t *testing.T) {
 	}
 	require.NoError(t, messages.Create(ctx, m2))
 
-	list, err := messages.ListByRoomID(ctx, room.ID, nil, 100)
+	list, err := messages.ListByRoomID(ctx, room.ID, nil, nil, 100, true)
 	require.NoError(t, err)
 	require.Len(t, list, 2)
 	require.Equal(t, m2.ID, list[0].ID)

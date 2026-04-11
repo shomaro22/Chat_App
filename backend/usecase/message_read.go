@@ -15,13 +15,15 @@ type MessageReadUseCase struct {
 	Messages repository.MessageRepository
 	Reads    repository.MessageReadRepository
 	Members  repository.RoomMemberRepository
+	Rooms    repository.RoomRepository
 }
 
-func NewMessageReadUseCase(messages repository.MessageRepository, reads repository.MessageReadRepository, members repository.RoomMemberRepository) *MessageReadUseCase {
+func NewMessageReadUseCase(messages repository.MessageRepository, reads repository.MessageReadRepository, members repository.RoomMemberRepository, rooms repository.RoomRepository) *MessageReadUseCase {
 	return &MessageReadUseCase{
 		Messages: messages,
 		Reads:    reads,
 		Members:  members,
+		Rooms:    rooms,
 	}
 }
 
@@ -49,6 +51,16 @@ func (u *MessageReadUseCase) MarkAsRead(ctx context.Context, userID, roomID, mes
 	}
 	if !ok {
 		return nil, ErrReadNotRoomMember
+	}
+	roomRow, err := u.Rooms.FindByIDForActiveMember(ctx, roomID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if roomRow == nil {
+		return nil, ErrReadNotRoomMember
+	}
+	if roomRow.FrozenAt != nil {
+		return nil, ErrRoomFrozen
 	}
 
 	target, err := u.Messages.FindByID(ctx, messageID)
@@ -110,6 +122,66 @@ func (u *MessageReadUseCase) MarkAsRead(ctx context.Context, userID, roomID, mes
 		return nil, err
 	}
 	return &MarkAsReadResult{Updated: true, LastReadMessageID: messageID}, nil
+}
+
+// MemberReadBrief はルーム内メンバーの最終既読位置（集計 API 用）。
+type MemberReadBrief struct {
+	UserID            uuid.UUID
+	LastReadMessageID *uuid.UUID
+}
+
+// RoomReadState はルームの未読数・自分の既読・メンバー別既読概要。
+type RoomReadState struct {
+	RoomID              uuid.UUID
+	MyLastReadMessageID *uuid.UUID
+	UnreadCount         int64
+	MemberReads         []MemberReadBrief
+}
+
+// GetRoomReadState は一覧・詳細向けの既読／未読集計を返す。
+func (u *MessageReadUseCase) GetRoomReadState(ctx context.Context, userID, roomID uuid.UUID) (*RoomReadState, error) {
+	if userID == uuid.Nil {
+		return nil, ErrInvalidMessageReadUserID
+	}
+	if roomID == uuid.Nil {
+		return nil, ErrInvalidMessageReadRoomID
+	}
+	ok, err := u.Members.IsActiveMember(ctx, roomID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrReadNotRoomMember
+	}
+	readRow, err := u.Reads.FindByRoomAndUser(ctx, roomID, userID)
+	if err != nil {
+		return nil, err
+	}
+	var lastRead *uuid.UUID
+	if readRow != nil {
+		lastRead = readRow.LastReadMessageID
+	}
+	unread, err := u.Messages.CountUnreadForViewer(ctx, roomID, userID, lastRead)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := u.Reads.ListByRoomForActiveMembers(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	members := make([]MemberReadBrief, 0, len(rows))
+	for i := range rows {
+		members = append(members, MemberReadBrief{
+			UserID:            rows[i].UserID,
+			LastReadMessageID: rows[i].LastReadMessageID,
+		})
+	}
+	return &RoomReadState{
+		RoomID:              roomID,
+		MyLastReadMessageID: lastRead,
+		UnreadCount:         unread,
+		MemberReads:         members,
+	}, nil
 }
 
 func messageIsStrictlyAfter(a, b *entity.Message) bool {

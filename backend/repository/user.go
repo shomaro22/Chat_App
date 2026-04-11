@@ -15,6 +15,7 @@ type UserRepository interface {
 	FindByID(ctx context.Context, id uuid.UUID) (*entity.User, error)
 	FindByEmail(ctx context.Context, email string) (*entity.User, error)
 	FindByIDs(ctx context.Context, ids []uuid.UUID) ([]entity.User, error)
+	SetActive(ctx context.Context, id uuid.UUID, active bool) error
 }
 
 type userRepository struct {
@@ -49,6 +50,10 @@ func (users *userRepository) FindByEmail(ctx context.Context, email string) (*en
 		return nil, err
 	}
 	return &m, nil
+}
+
+func (users *userRepository) SetActive(ctx context.Context, id uuid.UUID, active bool) error {
+	return users.db.WithContext(ctx).Model(&entity.User{}).Where("id = ?", id).Update("active", active).Error
 }
 
 func (users *userRepository) FindByIDs(ctx context.Context, ids []uuid.UUID) ([]entity.User, error) {
