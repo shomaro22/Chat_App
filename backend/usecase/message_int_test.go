@@ -20,6 +20,7 @@ func newMessageUseCase(gormDB *gorm.DB) *MessageUseCase {
 		repository.NewMessageRepository(gormDB),
 		repository.NewUserRepository(gormDB),
 		repository.NewRoomRepository(gormDB),
+		nil,
 	)
 }
 
@@ -78,7 +79,7 @@ func TestMessageUseCase_SendMessage_OK(t *testing.T) {
 	require.Nil(t, got.ImageURL)
 	require.False(t, got.IsDeleted)
 
-	img := "https://example.com/a.png"
+	img := "/static/uploads/e2e-test-image.png"
 	got2, err := uc.SendMessage(ctx, r.ID, u1.ID, nil, &img)
 	require.NoError(t, err)
 	require.Nil(t, got2.Content)

@@ -2,10 +2,7 @@ package controller
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
-
-	"chat-app/usecase"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -34,7 +31,7 @@ func (h *MessageReadController) GetRoomReadState(c echo.Context) error {
 	}
 	state, err := h.Reads.GetRoomReadState(c.Request().Context(), userID, roomID)
 	if err != nil {
-		return mapMessageReadUsecaseError(c, err)
+		return mapDomainError(c, err)
 	}
 	return c.JSON(http.StatusOK, roomReadStateToJSON(state))
 }
@@ -59,7 +56,7 @@ func (h *MessageReadController) MarkAsRead(c echo.Context) error {
 	}
 	result, err := h.Reads.MarkAsRead(c.Request().Context(), userID, roomID, messageID)
 	if err != nil {
-		return mapMessageReadUsecaseError(c, err)
+		return mapDomainError(c, err)
 	}
 	if result.Updated {
 		h.broadcastReadUpdated(roomID, userID, result.LastReadMessageID)
@@ -72,7 +69,7 @@ func (h *MessageReadController) broadcastReadUpdated(roomID, userID, lastReadMes
 		return
 	}
 	b, err := json.Marshal(readUpdatedPayload{
-		Type:              WSEventMessageRead,
+		Type:              WSEventReadUpdated,
 		SchemaVersion:     WSEventSchemaVersion,
 		RoomID:            roomID,
 		UserID:            userID,
@@ -82,26 +79,4 @@ func (h *MessageReadController) broadcastReadUpdated(roomID, userID, lastReadMes
 		return
 	}
 	h.Hub.BroadcastToRoom(roomID, b)
-}
-
-func mapMessageReadUsecaseError(c echo.Context, err error) error {
-	status, msg := messageReadUsecaseHTTP(err)
-	return c.JSON(status, map[string]string{"error": msg})
-}
-
-func messageReadUsecaseHTTP(err error) (int, string) {
-	switch {
-	case errors.Is(err, usecase.ErrInvalidMessageReadUserID),
-		errors.Is(err, usecase.ErrInvalidMessageReadRoomID),
-		errors.Is(err, usecase.ErrInvalidReadMessageID),
-		errors.Is(err, usecase.ErrReadMessageRoomMismatch):
-		return http.StatusBadRequest, err.Error()
-	case errors.Is(err, usecase.ErrReadNotRoomMember),
-		errors.Is(err, usecase.ErrRoomFrozen):
-		return http.StatusForbidden, err.Error()
-	case errors.Is(err, usecase.ErrReadMessageNotFound):
-		return http.StatusNotFound, err.Error()
-	default:
-		return http.StatusInternalServerError, "internal server error"
-	}
 }

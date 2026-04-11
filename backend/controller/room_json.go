@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"chat-app/entity"
-	"chat-app/usecase"
 
 	"github.com/google/uuid"
 )
@@ -79,7 +78,7 @@ type roomDetailResponse struct {
 	UnreadCount         int64            `json:"unread_count"`
 }
 
-func roomDetailToJSON(d *usecase.RoomDetail) roomDetailResponse {
+func roomDetailToJSON(d *RoomDetail) roomDetailResponse {
 	if d == nil {
 		return roomDetailResponse{}
 	}
@@ -138,7 +137,7 @@ type listRoomsEnrichedResponse struct {
 	Offset int                `json:"offset"`
 }
 
-func joinedRoomSummaryToJSON(s usecase.JoinedRoomSummary) roomListItemJSON {
+func joinedRoomSummaryToJSON(s JoinedRoomSummary) roomListItemJSON {
 	item := roomListItemJSON{
 		roomJSON:     roomToJSON(&s.Room),
 		UnreadCount:  s.UnreadCount,

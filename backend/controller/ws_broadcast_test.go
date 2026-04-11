@@ -36,7 +36,7 @@ func TestBroadcastPresenceUpdated_NoPanicOnResolverError(t *testing.T) {
 	r := &fakeJoinedRooms{err: errors.New("db")}
 	uid := uuid.New()
 	require.NotPanics(t, func() {
-		broadcastPresenceUpdated(h, r, context.Background(), uid, true)
+		BroadcastPresenceUpdated(h, r, context.Background(), uid, true)
 	})
 	require.Empty(t, h.roomIDs)
 }
@@ -44,7 +44,7 @@ func TestBroadcastPresenceUpdated_NoPanicOnResolverError(t *testing.T) {
 func TestBroadcastPresenceUpdated_NoBroadcastWhenEmptyRooms(t *testing.T) {
 	h := &fakePresenceFanout{}
 	r := &fakeJoinedRooms{ids: nil}
-	broadcastPresenceUpdated(h, r, context.Background(), uuid.New(), false)
+	BroadcastPresenceUpdated(h, r, context.Background(), uuid.New(), false)
 	require.Empty(t, h.roomIDs)
 }
 
@@ -54,18 +54,18 @@ func TestBroadcastPresenceUpdated_SingleFanOutCallWithAllRooms(t *testing.T) {
 	r2 := uuid.New()
 	r := &fakeJoinedRooms{ids: []uuid.UUID{r1, r2}}
 	uid := uuid.New()
-	broadcastPresenceUpdated(h, r, context.Background(), uid, true)
+	BroadcastPresenceUpdated(h, r, context.Background(), uid, true)
 	require.Len(t, h.roomIDs, 1)
 	require.Equal(t, []uuid.UUID{r1, r2}, h.roomIDs[0])
 }
 
 func TestBroadcastPresenceUpdated_NilHubOrResolver(t *testing.T) {
 	require.NotPanics(t, func() {
-		broadcastPresenceUpdated(nil, &fakeJoinedRooms{ids: []uuid.UUID{uuid.New()}}, context.Background(), uuid.New(), true)
+		BroadcastPresenceUpdated(nil, &fakeJoinedRooms{ids: []uuid.UUID{uuid.New()}}, context.Background(), uuid.New(), true)
 	})
 	h := &fakePresenceFanout{}
 	require.NotPanics(t, func() {
-		broadcastPresenceUpdated(h, nil, context.Background(), uuid.New(), true)
+		BroadcastPresenceUpdated(h, nil, context.Background(), uuid.New(), true)
 	})
 	require.Empty(t, h.roomIDs)
 }

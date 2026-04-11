@@ -36,21 +36,17 @@ type MarkAsReadResult struct {
 // MarkAsRead はメンバー検証後、最終既読メッセージを更新または新規作成する。
 func (u *MessageReadUseCase) MarkAsRead(ctx context.Context, userID, roomID, messageID uuid.UUID) (*MarkAsReadResult, error) {
 	if userID == uuid.Nil {
-		return nil, ErrInvalidMessageReadUserID
+		return nil, ErrInvalidUserID
 	}
 	if roomID == uuid.Nil {
-		return nil, ErrInvalidMessageReadRoomID
+		return nil, ErrInvalidRoomID
 	}
 	if messageID == uuid.Nil {
 		return nil, ErrInvalidReadMessageID
 	}
 
-	roomRow, err := readRoomForActiveMember(ctx, u.Rooms, roomID, userID)
-	if err != nil {
+	if _, err := RoomForActiveMemberWritable(ctx, u.Rooms, roomID, userID); err != nil {
 		return nil, err
-	}
-	if roomRow.FrozenAt != nil {
-		return nil, ErrRoomFrozen
 	}
 
 	target, err := u.Messages.FindByID(ctx, messageID)
@@ -132,12 +128,12 @@ type RoomReadState struct {
 // GetRoomReadState は一覧・詳細向けの既読／未読集計を返す。
 func (u *MessageReadUseCase) GetRoomReadState(ctx context.Context, userID, roomID uuid.UUID) (*RoomReadState, error) {
 	if userID == uuid.Nil {
-		return nil, ErrInvalidMessageReadUserID
+		return nil, ErrInvalidUserID
 	}
 	if roomID == uuid.Nil {
-		return nil, ErrInvalidMessageReadRoomID
+		return nil, ErrInvalidRoomID
 	}
-	if _, err := readRoomForActiveMember(ctx, u.Rooms, roomID, userID); err != nil {
+	if _, err := RoomForActiveMember(ctx, u.Rooms, roomID, userID); err != nil {
 		return nil, err
 	}
 	readRow, err := u.Reads.FindByRoomAndUser(ctx, roomID, userID)

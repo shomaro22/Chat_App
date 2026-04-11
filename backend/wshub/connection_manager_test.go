@@ -51,6 +51,19 @@ func TestConnectionManager_RemoveClearsSubscriptions_BroadcastNoPanic(t *testing
 	})
 }
 
+func TestConnectionManager_CloseUserConnections_ClearsSubsAndOfflinePresence(t *testing.T) {
+	m := NewConnectionManager()
+	u := uuid.New()
+	room := uuid.New()
+	id, _ := m.Register(u, nil)
+	m.Subscribe(id, room)
+	ch := m.CloseUserConnections(u)
+	require.True(t, ch.Changed)
+	require.False(t, ch.IsOnline)
+	require.Equal(t, u, ch.UserID)
+	require.NotPanics(t, func() { m.BroadcastToRoom(room, []byte(`{}`)) })
+}
+
 func TestConnectionManager_BroadcastOnlyToSubscribedRoom(t *testing.T) {
 	m := NewConnectionManager()
 	u := uuid.New()

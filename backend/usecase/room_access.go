@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"errors"
 
 	"chat-app/entity"
 	"chat-app/repository"
@@ -11,7 +10,7 @@ import (
 )
 
 // RoomForActiveMember は論理削除されていないルームに user がアクティブメンバーとして属しているとき *entity.Room を返す。
-// 閲覧・送信・既読更新・WS 購読可否の共通前提（非メンバーは ErrNotRoomMember）。
+// ルーム詳細・メッセージ一覧・既読状態取得など「閲覧」系の共通前提（非メンバーは ErrNotRoomMember）。
 func RoomForActiveMember(ctx context.Context, rooms repository.RoomRepository, roomID, userID uuid.UUID) (*entity.Room, error) {
 	if roomID == uuid.Nil {
 		return nil, ErrInvalidRoomID
@@ -29,20 +28,26 @@ func RoomForActiveMember(ctx context.Context, rooms repository.RoomRepository, r
 	return r, nil
 }
 
-// readRoomForActiveMember は既読ユースケース向けに RoomForActiveMember のエラーを既読用エラーへ寄せる。
-func readRoomForActiveMember(ctx context.Context, rooms repository.RoomRepository, roomID, userID uuid.UUID) (*entity.Room, error) {
+// RoomForActiveMemberWritable はアクティブメンバーかつルームが凍結していないことを検証する。
+// 凍結ルーム（FrozenAt != nil）のときの統一ルール:
+//
+//	許可（RoomForActiveMember）: メッセージ一覧・ルーム詳細・read-state 取得など閲覧系 HTTP
+//	拒否 ErrRoomFrozen（本関数経由）: メッセージ送信・論理削除・既読更新・WS subscribe
+//
+// WebSocket の購読可否は RoomForWebSocketSubscribe が同じく ErrRoomFrozen を返す。
+func RoomForActiveMemberWritable(ctx context.Context, rooms repository.RoomRepository, roomID, userID uuid.UUID) (*entity.Room, error) {
 	r, err := RoomForActiveMember(ctx, rooms, roomID, userID)
-	if err == nil {
-		return r, nil
+	if err != nil {
+		return nil, err
 	}
-	if errors.Is(err, ErrInvalidRoomID) {
-		return nil, ErrInvalidMessageReadRoomID
+	if r.FrozenAt != nil {
+		return nil, ErrRoomFrozen
 	}
-	if errors.Is(err, ErrInvalidUserID) {
-		return nil, ErrInvalidMessageReadUserID
-	}
-	if errors.Is(err, ErrNotRoomMember) {
-		return nil, ErrReadNotRoomMember
-	}
-	return nil, err
+	return r, nil
+}
+
+// RoomForWebSocketSubscribe は WS でルームを購読してよいかを返す（nil で可）。RoomForActiveMemberWritable と同じ判定。
+func RoomForWebSocketSubscribe(ctx context.Context, rooms repository.RoomRepository, roomID, userID uuid.UUID) error {
+	_, err := RoomForActiveMemberWritable(ctx, rooms, roomID, userID)
+	return err
 }

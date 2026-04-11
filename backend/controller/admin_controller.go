@@ -1,23 +1,41 @@
 package controller
 
 import (
-	"errors"
+	"context"
+	"log/slog"
 	"net/http"
+	"time"
 
-	"chat-app/usecase"
+	"chat-app/audit"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
+const adminPresenceNotifyTimeout = 5 * time.Second
+
 // AdminController は管理者 API。
 type AdminController struct {
 	Admin AdminUseCase
+	// Sockets はユーザー単位の WS 即時切断（ハブからの登録解除を含む）。nil なら切断しない。
+	Sockets UserConnectionCloser
+	// PresenceHub / PresenceRooms は管理者切断後の presence_updated 配信に使う（いずれか nil ならスキップ）。
+	PresenceHub   PresenceBroadcastHub
+	PresenceRooms PresenceJoinedRooms
 }
 
-// NewAdminController は AdminController を生成する。
-func NewAdminController(admin AdminUseCase) *AdminController {
-	return &AdminController{Admin: admin}
+// NewAdminController は AdminController を生成する。sockets / presence は省略可（nil）。
+func NewAdminController(admin AdminUseCase, sockets UserConnectionCloser, presenceHub PresenceBroadcastHub, presenceRooms PresenceJoinedRooms) *AdminController {
+	return &AdminController{Admin: admin, Sockets: sockets, PresenceHub: presenceHub, PresenceRooms: presenceRooms}
+}
+
+func (h *AdminController) notifyPresenceAfterForcedDisconnect(ctx context.Context, ch HubPresenceChange) {
+	if !ch.Changed || h.PresenceHub == nil || h.PresenceRooms == nil {
+		return
+	}
+	pctx, cancel := context.WithTimeout(ctx, adminPresenceNotifyTimeout)
+	defer cancel()
+	BroadcastPresenceUpdated(h.PresenceHub, h.PresenceRooms, pctx, ch.UserID, ch.IsOnline)
 }
 
 // SetUserActive は PATCH /admin/users/:id/active。
@@ -36,6 +54,15 @@ func (h *AdminController) SetUserActive(c echo.Context) error {
 	}
 	if err := h.Admin.SetUserActive(c.Request().Context(), adminID, targetID, body.Active); err != nil {
 		return mapAdminUsecaseError(c, err)
+	}
+	audit.Event("admin.set_user_active",
+		slog.String("admin_id", adminID.String()),
+		slog.String("target_user_id", targetID.String()),
+		slog.Bool("active", body.Active),
+	)
+	if !body.Active && h.Sockets != nil {
+		ch := h.Sockets.CloseUserConnections(targetID)
+		h.notifyPresenceAfterForcedDisconnect(c.Request().Context(), ch)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -57,6 +84,11 @@ func (h *AdminController) SetRoomFrozen(c echo.Context) error {
 	if err := h.Admin.SetRoomFrozen(c.Request().Context(), adminID, roomID, body.Frozen); err != nil {
 		return mapAdminUsecaseError(c, err)
 	}
+	audit.Event("admin.set_room_frozen",
+		slog.String("admin_id", adminID.String()),
+		slog.String("room_id", roomID.String()),
+		slog.Bool("frozen", body.Frozen),
+	)
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -77,25 +109,23 @@ func (h *AdminController) ForceRemoveMember(c echo.Context) error {
 	if err := h.Admin.ForceRemoveMember(c.Request().Context(), adminID, roomID, targetID); err != nil {
 		return mapAdminUsecaseError(c, err)
 	}
+	audit.Event("admin.force_remove_member",
+		slog.String("admin_id", adminID.String()),
+		slog.String("room_id", roomID.String()),
+		slog.String("target_user_id", targetID.String()),
+	)
+	if h.Sockets != nil {
+		ch := h.Sockets.CloseUserConnections(targetID)
+		h.notifyPresenceAfterForcedDisconnect(c.Request().Context(), ch)
+	}
 	return c.NoContent(http.StatusNoContent)
 }
 
 func mapAdminUsecaseError(c echo.Context, err error) error {
-	status, msg := adminUsecaseHTTP(err)
-	return c.JSON(status, map[string]string{"error": msg})
-}
-
-func adminUsecaseHTTP(err error) (int, string) {
-	switch {
-	case errors.Is(err, usecase.ErrForbiddenAdmin):
-		return http.StatusForbidden, err.Error()
-	case errors.Is(err, usecase.ErrInvalidUserID),
-		errors.Is(err, usecase.ErrInvalidRoomID):
-		return http.StatusBadRequest, err.Error()
-	case errors.Is(err, usecase.ErrRoomNotFound),
-		errors.Is(err, usecase.ErrMemberNotFound):
-		return http.StatusNotFound, err.Error()
-	default:
-		return http.StatusInternalServerError, "internal server error"
+	status, code, msg := domainErrHTTP(err)
+	body := map[string]string{"error": msg}
+	if code != "" {
+		body["code"] = code
 	}
+	return c.JSON(status, body)
 }

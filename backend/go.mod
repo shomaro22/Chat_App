@@ -1,6 +1,6 @@
 module chat-app
 
-go 1.23
+go 1.25.0
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -12,6 +12,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/crypto v0.22.0
+	golang.org/x/time v0.15.0
 	gorm.io/driver/postgres v1.5.7
 	gorm.io/gorm v1.25.10
 )

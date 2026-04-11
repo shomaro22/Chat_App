@@ -37,13 +37,13 @@ func TestRoom_ListJoinedRooms_OrderAndFilter(t *testing.T) {
 	require.NoError(t, members.Create(ctx, &entity.RoomMember{ID: uuid.New(), RoomID: rA.ID, UserID: u1.ID, JoinedAt: t0}))
 	require.NoError(t, members.Create(ctx, &entity.RoomMember{ID: uuid.New(), RoomID: rB.ID, UserID: u1.ID, JoinedAt: t1}))
 
-	list, err := rooms.ListJoinedRooms(ctx, u1.ID, 50, 0)
+	list, err := rooms.ListJoinedRooms(ctx, u1.ID, 50, 0, true)
 	require.NoError(t, err)
 	require.Len(t, list, 2)
 	require.Equal(t, rB.ID, list[0].ID, "newer updated_at should be first")
 	require.Equal(t, rA.ID, list[1].ID)
 
-	leftOnly, err := rooms.ListJoinedRooms(ctx, u2.ID, 50, 0)
+	leftOnly, err := rooms.ListJoinedRooms(ctx, u2.ID, 50, 0, true)
 	require.NoError(t, err)
 	require.Empty(t, leftOnly)
 }

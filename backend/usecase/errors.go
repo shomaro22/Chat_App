@@ -20,14 +20,12 @@ var (
 	ErrMessageNotFound      = errors.New("message not found")
 	ErrNotRoomMember        = errors.New("not active room member")
 	ErrEmptyMessage         = errors.New("message content or image is required")
+	ErrInvalidImageURL      = errors.New("image_url must be a path from this server (/static/uploads/...)")
 	ErrForbiddenMessageEdit = errors.New("forbidden message operation")
 
-	ErrInvalidMessageReadUserID = errors.New("invalid user id")
-	ErrInvalidMessageReadRoomID = errors.New("invalid room id")
-	ErrInvalidReadMessageID     = errors.New("invalid read message id")
-	ErrReadNotRoomMember        = errors.New("not active room member")
-	ErrReadMessageNotFound      = errors.New("read target message not found")
-	ErrReadMessageRoomMismatch  = errors.New("message does not belong to room")
+	ErrInvalidReadMessageID    = errors.New("invalid read message id")
+	ErrReadMessageNotFound     = errors.New("read target message not found")
+	ErrReadMessageRoomMismatch = errors.New("message does not belong to room")
 
 	ErrRoomNotFound   = errors.New("room not found")
 	ErrNotGroupRoom   = errors.New("not a group room")

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"chat-app/usecase"
@@ -35,11 +36,7 @@ var wsUpgrader = websocket.Upgrader{
 	},
 }
 
-const (
-	wsReadDeadline = 90 * time.Second
-	wsPingInterval = 30 * time.Second
-	wsDBOpTimeout  = 5 * time.Second
-)
+const wsDBOpTimeout = 5 * time.Second
 
 // Handle は GET /ws で WebSocket を確立し、メッセージループを回す。認証は JWT ミドルウェア（Bearer または access_token）で行う。
 func (w *WSController) Handle(c echo.Context) error {
@@ -57,14 +54,19 @@ func (w *WSController) Handle(c echo.Context) error {
 	}
 
 	conn.SetPongHandler(func(string) error {
-		return conn.SetReadDeadline(time.Now().Add(wsReadDeadline))
+		return conn.SetReadDeadline(time.Now().Add(WSReadDeadline))
 	})
-	conn.SetReadDeadline(time.Now().Add(wsReadDeadline))
+	conn.SetReadDeadline(time.Now().Add(WSReadDeadline))
 
 	connID, presOnConnect := w.Hub.Register(userID, conn)
+	w.writeJSON(connID, wsSessionReadyOutbound{
+		Type:          WSEventSessionReady,
+		SchemaVersion: WSEventSchemaVersion,
+		UserID:        userID,
+	})
 	if presOnConnect.Changed && presOnConnect.IsOnline {
 		pctx, pcancel := context.WithTimeout(context.Background(), wsDBOpTimeout)
-		broadcastPresenceUpdated(w.Hub, w.Presence, pctx, userID, true)
+		BroadcastPresenceUpdated(w.Hub, w.Presence, pctx, userID, true)
 		pcancel()
 	}
 
@@ -76,7 +78,7 @@ func (w *WSController) Handle(c echo.Context) error {
 		ch := w.Hub.RemoveConn(connID)
 		if ch.Changed {
 			ctx, cancel := context.WithTimeout(context.Background(), wsDBOpTimeout)
-			broadcastPresenceUpdated(w.Hub, w.Presence, ctx, ch.UserID, ch.IsOnline)
+			BroadcastPresenceUpdated(w.Hub, w.Presence, ctx, ch.UserID, ch.IsOnline)
 			cancel()
 		}
 		_ = conn.Close()
@@ -87,51 +89,70 @@ func (w *WSController) Handle(c echo.Context) error {
 		if err != nil {
 			break
 		}
-		conn.SetReadDeadline(time.Now().Add(wsReadDeadline))
+		conn.SetReadDeadline(time.Now().Add(WSReadDeadline))
 
 		var in wsClientMessage
 		if err := json.Unmarshal(data, &in); err != nil {
-			w.writeWSError(connID, WSCodeInvalidJSON, "invalid json")
+			w.writeWSError(connID, WSCodeInvalidJSON, "invalid json", nil)
 			continue
 		}
-		roomID, err := uuid.Parse(in.RoomID)
+		if in.SchemaVersion != 0 && in.SchemaVersion != WSClientSchemaVersion {
+			w.writeWSError(connID, WSCodeSchemaVersion, "unsupported schema_version", nil)
+			continue
+		}
+		typ := strings.TrimSpace(in.Type)
+		if typ == "" {
+			w.writeWSError(connID, WSCodeMissingType, "type is required", nil)
+			continue
+		}
+		if typ == WSClientPing {
+			w.writeJSON(connID, wsPongOutbound{Type: WSEventPong, SchemaVersion: WSEventSchemaVersion})
+			continue
+		}
+		roomRaw := strings.TrimSpace(in.RoomID)
+		if roomRaw == "" {
+			w.writeWSError(connID, WSCodeMissingRoomID, "room_id is required", nil)
+			continue
+		}
+		roomID, err := uuid.Parse(roomRaw)
 		if err != nil {
-			w.writeWSError(connID, WSCodeInvalidRoomID, "invalid room_id")
+			w.writeWSError(connID, WSCodeInvalidRoomID, "invalid room_id", nil)
 			continue
 		}
+		roomPtr := &roomID
 
-		switch in.Type {
-		case "subscribe_room", "room.subscribe":
+		switch typ {
+		case WSClientSubscribePrimary, WSClientSubscribeLegacy1, WSClientSubscribeLegacy2:
 			ctx, cancel := context.WithTimeout(context.Background(), wsDBOpTimeout)
 			err := w.Rooms.CanSubscribeWebSocket(ctx, roomID, userID)
 			cancel()
 			if err != nil {
 				switch {
 				case errors.Is(err, usecase.ErrRoomFrozen):
-					w.writeWSError(connID, WSCodeRoomFrozen, "room is frozen")
+					w.writeWSError(connID, WSCodeRoomFrozen, "room is frozen", roomPtr)
 				case errors.Is(err, usecase.ErrNotRoomMember):
-					w.writeWSError(connID, WSCodeForbiddenNotMember, "not an active member of this room")
+					w.writeWSError(connID, WSCodeForbiddenNotMember, "not an active member of this room", roomPtr)
 				case errors.Is(err, usecase.ErrInvalidRoomID), errors.Is(err, usecase.ErrInvalidUserID):
-					w.writeWSError(connID, WSCodeInvalidRoomID, "invalid room or user")
+					w.writeWSError(connID, WSCodeInvalidRoomID, "invalid room or user", roomPtr)
 				default:
-					w.writeWSError(connID, WSCodeInternal, "internal error")
+					w.writeWSError(connID, WSCodeInternal, "internal error", roomPtr)
 				}
 				continue
 			}
 			w.Hub.Subscribe(connID, roomID)
-			w.writeJSON(connID, wsRoomAckOutbound{Type: WSEventRoomSubscribed, SchemaVersion: WSEventSchemaVersion, RoomID: roomID.String()})
-		case "unsubscribe_room", "room.unsubscribe":
+			w.writeJSON(connID, wsRoomAckOutbound{Type: WSEventSubscribed, SchemaVersion: WSEventSchemaVersion, RoomID: roomID.String()})
+		case WSClientUnsubscribePrimary, WSClientUnsubscribeLegacy1, WSClientUnsubscribeLegacy2:
 			w.Hub.Unsubscribe(connID, roomID)
-			w.writeJSON(connID, wsRoomAckOutbound{Type: WSEventRoomUnsubscribed, SchemaVersion: WSEventSchemaVersion, RoomID: roomID.String()})
+			w.writeJSON(connID, wsRoomAckOutbound{Type: WSEventUnsubscribed, SchemaVersion: WSEventSchemaVersion, RoomID: roomID.String()})
 		default:
-			w.writeWSError(connID, WSCodeUnknownType, "unknown type")
+			w.writeWSError(connID, WSCodeUnknownType, "unknown type", roomPtr)
 		}
 	}
 	return nil
 }
 
 func (w *WSController) pingLoop(connID uuid.UUID, done <-chan struct{}) {
-	ticker := time.NewTicker(wsPingInterval)
+	ticker := time.NewTicker(WSPingInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -145,13 +166,18 @@ func (w *WSController) pingLoop(connID uuid.UUID, done <-chan struct{}) {
 	}
 }
 
-func (w *WSController) writeWSError(connID uuid.UUID, code, msg string) {
-	w.writeJSON(connID, wsErrorOutbound{
+func (w *WSController) writeWSError(connID uuid.UUID, code, msg string, roomID *uuid.UUID) {
+	out := wsErrorOutbound{
 		Type:          WSEventError,
 		SchemaVersion: WSEventSchemaVersion,
 		Code:          code,
 		Message:       msg,
-	})
+	}
+	if roomID != nil {
+		s := roomID.String()
+		out.RoomID = &s
+	}
+	w.writeJSON(connID, out)
 }
 
 func (w *WSController) writeJSON(connID uuid.UUID, v any) {
@@ -162,8 +188,8 @@ func (w *WSController) writeJSON(connID uuid.UUID, v any) {
 	_ = w.Hub.WriteText(connID, b)
 }
 
-// broadcastPresenceUpdated はユーザーのオンライン状態を、参加ルームの購読者へ配信する。
-func broadcastPresenceUpdated(hub PresenceBroadcastHub, rooms PresenceJoinedRooms, ctx context.Context, userID uuid.UUID, isOnline bool) {
+// BroadcastPresenceUpdated はユーザーのオンライン状態を、参加ルームの購読者へ presence_updated で配信する（WS 接続・管理者切断の共通処理）。
+func BroadcastPresenceUpdated(hub PresenceBroadcastHub, rooms PresenceJoinedRooms, ctx context.Context, userID uuid.UUID, isOnline bool) {
 	if hub == nil || rooms == nil {
 		return
 	}
@@ -176,7 +202,7 @@ func broadcastPresenceUpdated(hub PresenceBroadcastHub, rooms PresenceJoinedRoom
 		return
 	}
 	b, err := json.Marshal(presenceUpdatedPayload{
-		Type:          WSEventPresenceChanged,
+		Type:          WSEventPresenceUpdated,
 		SchemaVersion: WSEventSchemaVersion,
 		UserID:        userID,
 		IsOnline:      isOnline,

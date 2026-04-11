@@ -1,10 +1,7 @@
 package controller
 
 import (
-	"errors"
 	"net/http"
-
-	"chat-app/usecase"
 
 	"github.com/labstack/echo/v4"
 )
@@ -20,6 +17,7 @@ func NewMediaController(media MediaUseCase) *MediaController {
 }
 
 // UploadImage は POST /media/images（multipart field: file）。
+// 201 の JSON は {"url":"/static/uploads/<uuid>.<ext>"}。メッセージ作成時 image_url にその値を渡す。
 func (h *MediaController) UploadImage(c echo.Context) error {
 	if _, err := CurrentUserID(c); err != nil {
 		return err
@@ -43,17 +41,5 @@ func (h *MediaController) UploadImage(c echo.Context) error {
 }
 
 func mapMediaError(c echo.Context, err error) error {
-	status, msg := mediaUsecaseHTTP(err)
-	return c.JSON(status, map[string]string{"error": msg})
-}
-
-func mediaUsecaseHTTP(err error) (int, string) {
-	switch {
-	case errors.Is(err, usecase.ErrUnsupportedMedia):
-		return http.StatusUnsupportedMediaType, err.Error()
-	case errors.Is(err, usecase.ErrUploadTooLarge):
-		return http.StatusRequestEntityTooLarge, err.Error()
-	default:
-		return http.StatusInternalServerError, "internal server error"
-	}
+	return mapDomainError(c, err)
 }

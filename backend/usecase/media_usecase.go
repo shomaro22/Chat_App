@@ -57,3 +57,25 @@ func (m *MediaUseCase) SaveUploadedImage(contentType string, r io.Reader) (urlPa
 	}
 	return "/static/uploads/" + name, nil
 }
+
+// DeleteByPublicURL は当サービスが発行した /static/uploads/ 配下のファイルだけを削除する（他パスは無視）。
+func (m *MediaUseCase) DeleteByPublicURL(urlPath string) {
+	if m == nil || urlPath == "" {
+		return
+	}
+	urlPath = strings.TrimSpace(urlPath)
+	const prefix = "/static/uploads/"
+	if !strings.HasPrefix(urlPath, prefix) {
+		return
+	}
+	name := strings.TrimPrefix(urlPath, prefix)
+	if name == "" || strings.Contains(name, "..") {
+		return
+	}
+	full := filepath.Join(m.PublicRoot, "uploads", filepath.Clean(name))
+	root := filepath.Clean(m.PublicRoot)
+	if !strings.HasPrefix(filepath.Clean(full), root) {
+		return
+	}
+	_ = os.Remove(full)
+}
