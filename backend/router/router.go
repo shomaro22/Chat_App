@@ -26,10 +26,9 @@ type Config struct {
 	// RateLimitLogin / RateLimitRegister は該当 POST にだけ適用（空なら未適用）。
 	RateLimitLogin    []echo.MiddlewareFunc
 	RateLimitRegister []echo.MiddlewareFunc
-	// RateLimitMessage / RateLimitMedia / RateLimitWS は JWT 付きルートにだけ適用（空なら未適用）。
-	RateLimitMessage []echo.MiddlewareFunc
-	RateLimitMedia   []echo.MiddlewareFunc
-	RateLimitWS      []echo.MiddlewareFunc
+	// RateLimitAfterJWT は JWT 検証直後の api グループに Use される（例: メッセージ送信・画像・WS）。
+	// 空なら未適用。
+	RateLimitAfterJWT []echo.MiddlewareFunc
 }
 
 // New はルーティング済み Echo を返す。/auth は公開、それ以外の API は JWT 必須、/admin は admin ロール必須。
@@ -64,6 +63,9 @@ func New(cfg Config) *echo.Echo {
 
 	api := e.Group("")
 	api.Use(jwt)
+	for _, mw := range cfg.RateLimitAfterJWT {
+		api.Use(mw)
+	}
 	if cfg.Room != nil {
 		api.GET("/rooms", cfg.Room.ListJoinedRooms)
 		api.GET("/rooms/:id", cfg.Room.GetRoomDetail)
@@ -75,11 +77,7 @@ func New(cfg Config) *echo.Echo {
 		api.DELETE("/rooms/:id/members/:userId", cfg.Room.RemoveRoomMember)
 	}
 	if cfg.Messages != nil {
-		if len(cfg.RateLimitMessage) > 0 {
-			api.POST("/rooms/:id/messages", cfg.Messages.CreateMessage, cfg.RateLimitMessage...)
-		} else {
-			api.POST("/rooms/:id/messages", cfg.Messages.CreateMessage)
-		}
+		api.POST("/rooms/:id/messages", cfg.Messages.CreateMessage)
 		api.GET("/rooms/:id/messages", cfg.Messages.ListMessages)
 		api.DELETE("/messages/:id", cfg.Messages.DeleteMessage)
 	}
@@ -88,18 +86,10 @@ func New(cfg Config) *echo.Echo {
 		api.POST("/rooms/:id/read", cfg.Reads.MarkAsRead)
 	}
 	if cfg.Media != nil {
-		if len(cfg.RateLimitMedia) > 0 {
-			api.POST("/media/images", cfg.Media.UploadImage, cfg.RateLimitMedia...)
-		} else {
-			api.POST("/media/images", cfg.Media.UploadImage)
-		}
+		api.POST("/media/images", cfg.Media.UploadImage)
 	}
 	if cfg.WS != nil {
-		if len(cfg.RateLimitWS) > 0 {
-			api.GET("/ws", cfg.WS.Handle, cfg.RateLimitWS...)
-		} else {
-			api.GET("/ws", cfg.WS.Handle)
-		}
+		api.GET("/ws", cfg.WS.Handle)
 	}
 
 	if cfg.Admin != nil {

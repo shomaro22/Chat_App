@@ -8,7 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
+
+	"github.com/joho/godotenv"
 
 	"chat-app/auth"
 	"chat-app/controller"
@@ -26,6 +27,8 @@ import (
 )
 
 func main() {
+	loadDotEnv()
+
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		databaseURL = "postgres://postgres:postgres@localhost:5432/chatapp?sslmode=disable"
@@ -120,7 +123,7 @@ func main() {
 	mediaCtl := controller.NewMediaController(mediaUC)
 	adminCtl := controller.NewAdminController(adminUC, wsHubAdapter{hub}, hub, presenceUC)
 
-	win1m := time.Minute
+	rateUC := usecase.NewRateLimitUseCase(rateLim, usecase.DefaultRateLimitPolicy())
 	e := router.New(router.Config{
 		Auth:            authCtl,
 		Room:            roomCtl,
@@ -133,23 +136,29 @@ func main() {
 		ValidateSession: validateSession,
 		StaticDir:       publicRoot,
 		RateLimitLogin: []echo.MiddlewareFunc{
-			middleware.RedisLoginRateLimit(rateLim, 20, win1m),
+			middleware.LoginRateLimit(rateUC),
 		},
 		RateLimitRegister: []echo.MiddlewareFunc{
-			middleware.RedisRegisterRateLimit(rateLim, 10, win1m),
+			middleware.RegisterRateLimit(rateUC),
 		},
-		RateLimitMessage: []echo.MiddlewareFunc{
-			middleware.RedisMessageSendRateLimit(rateLim, 60, win1m),
-		},
-		RateLimitMedia: []echo.MiddlewareFunc{
-			middleware.RedisMediaUploadRateLimit(rateLim, 30, win1m),
-		},
-		RateLimitWS: []echo.MiddlewareFunc{
-			middleware.RedisWSConnectRateLimit(rateLim, 30, win1m),
+		RateLimitAfterJWT: []echo.MiddlewareFunc{
+			middleware.AfterAuthRateLimits(rateUC),
 		},
 	})
 	if err := e.Start(addr); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// loadDotEnv はカレントディレクトリの .env があれば読み込む（無ければ何もしない）。
+// 既に設定されている環境変数は上書きしない（godotenv の既定）。
+func loadDotEnv() {
+	const envFile = ".env"
+	if _, err := os.Stat(envFile); err != nil {
+		return
+	}
+	if err := godotenv.Load(envFile); err != nil {
+		log.Printf("warning: load .env: %v", err)
 	}
 }
 
