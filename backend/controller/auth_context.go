@@ -10,9 +10,8 @@ import (
 
 // CurrentUserID はミドルウェアが設定した認証ユーザー ID を返す。
 func CurrentUserID(c echo.Context) (uuid.UUID, error) {
-	v := c.Get(middleware.ContextUserIDKey)
-	uid, ok := v.(uuid.UUID)
-	if !ok || uid == uuid.Nil {
+	uid, ok := middleware.AuthUserID(c)
+	if !ok {
 		return uuid.Nil, echo.NewHTTPError(401, map[string]string{"error": "unauthorized"})
 	}
 	return uid, nil

@@ -75,3 +75,24 @@ func TestFixedWindowRateLimiter_NilRedisAlwaysAllow(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 }
+
+func TestFixedWindowRateLimiter_TypedNilClientAlwaysAllow(t *testing.T) {
+	var c *redis.Client
+	lim := NewFixedWindowRateLimiter(c)
+	ok, err := lim.Allow(context.Background(), "k", 1, time.Second)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, lim.LoadScript(context.Background()))
+}
+
+func TestFixedWindowRateLimiter_RedisErrorPropagates(t *testing.T) {
+	s := miniredis.RunT(t)
+	addr := s.Addr()
+	rdb := redis.NewClient(&redis.Options{Addr: addr})
+	lim := NewFixedWindowRateLimiter(rdb)
+	s.Close()
+	ok, err := lim.Allow(context.Background(), "rl:test:err", 1, time.Minute)
+	require.Error(t, err)
+	require.False(t, ok)
+	_ = rdb.Close()
+}

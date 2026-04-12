@@ -36,6 +36,33 @@ func BearerOrQueryToken(c echo.Context) string {
 	return ""
 }
 
+// AuthUserID は JWTAuth が ContextUserIDKey に載せたユーザー ID を返す（型が uuid.UUID 以外の場合も string ならパースする）。
+func AuthUserID(c echo.Context) (uuid.UUID, bool) {
+	v := c.Get(ContextUserIDKey)
+	if v == nil {
+		return uuid.Nil, false
+	}
+	switch x := v.(type) {
+	case uuid.UUID:
+		if x == uuid.Nil {
+			return uuid.Nil, false
+		}
+		return x, true
+	case string:
+		s := strings.TrimSpace(x)
+		if s == "" {
+			return uuid.Nil, false
+		}
+		u, err := uuid.Parse(s)
+		if err != nil || u == uuid.Nil {
+			return uuid.Nil, false
+		}
+		return u, true
+	default:
+		return uuid.Nil, false
+	}
+}
+
 // JWTAuth は TokenParser で検証し、コンテキストに user_id / role を載せる。
 // validate が非 nil のときはその後に呼び出し、失敗時は 401 を返す（validate 内で ContextUserRoleKey を更新してよい）。
 func JWTAuth(parse TokenParser, validate SessionValidator) echo.MiddlewareFunc {
