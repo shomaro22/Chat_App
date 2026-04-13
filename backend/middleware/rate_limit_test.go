@@ -24,11 +24,13 @@ func TestRegisterRateLimit_429BodyAndRetryAfter(t *testing.T) {
 	s := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
 	p := usecase.DefaultRateLimitPolicy()
-	uc := usecase.NewRateLimitUseCase(repository.NewFixedWindowRateLimiter(rdb), usecase.RateLimitPolicy{
+	uc := usecase.NewRateLimitUseCase(repository.NewRateLimitRepository(rdb), usecase.RateLimitPolicy{
 		RegisterLimit:    3,
 		RegisterWindow:   p.RegisterWindow,
-		LoginLimit:       p.LoginLimit,
-		LoginWindow:      p.LoginWindow,
+		LoginIPLimit:     p.LoginIPLimit,
+		LoginIPWindow:    p.LoginIPWindow,
+		LoginEmailLimit:  p.LoginEmailLimit,
+		LoginEmailWindow: p.LoginEmailWindow,
 		MessageLimit:     p.MessageLimit,
 		MessageWindow:    p.MessageWindow,
 		MediaLimit:       p.MediaLimit,
@@ -68,9 +70,10 @@ func TestRegisterRateLimit_429BodyAndRetryAfter(t *testing.T) {
 func TestLoginRateLimit_EmailKeySeparateFromIP(t *testing.T) {
 	s := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
-	repo := repository.NewFixedWindowRateLimiter(rdb)
 	p := usecase.DefaultRateLimitPolicy()
-	p.LoginLimit = 1
+	p.LoginIPLimit = 10
+	p.LoginEmailLimit = 1
+	repo := repository.NewRateLimitRepository(rdb)
 	uc := usecase.NewRateLimitUseCase(repo, p)
 
 	e := echo.New()
@@ -97,12 +100,39 @@ func TestLoginRateLimit_EmailKeySeparateFromIP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 }
 
+func TestLoginRateLimit_IPKeyLimitsAcrossDifferentEmails(t *testing.T) {
+	s := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+	p := usecase.DefaultRateLimitPolicy()
+	p.LoginIPLimit = 1
+	p.LoginEmailLimit = 10
+	repo := repository.NewRateLimitRepository(rdb)
+	uc := usecase.NewRateLimitUseCase(repo, p)
+
+	e := echo.New()
+	e.POST("/auth/login", func(c echo.Context) error {
+		return c.NoContent(http.StatusOK)
+	}, LoginRateLimit(uc))
+
+	req1 := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader([]byte(`{"email":"a@x.test","password":"x"}`)))
+	req1.RemoteAddr = "198.51.100.1:1"
+	rec1 := httptest.NewRecorder()
+	e.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	req2 := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader([]byte(`{"email":"b@x.test","password":"y"}`)))
+	req2.RemoteAddr = "198.51.100.1:1"
+	rec2 := httptest.NewRecorder()
+	e.ServeHTTP(rec2, req2)
+	require.Equal(t, http.StatusTooManyRequests, rec2.Code)
+}
+
 func TestMessageSendRateLimit_PerRoom(t *testing.T) {
 	s := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
-	repo := repository.NewFixedWindowRateLimiter(rdb)
 	p := usecase.DefaultRateLimitPolicy()
 	p.MessageLimit = 1
+	repo := repository.NewRateLimitRepository(rdb)
 	uc := usecase.NewRateLimitUseCase(repo, p)
 
 	e := echo.New()
@@ -144,9 +174,9 @@ func TestMessageSendRateLimit_PerRoom(t *testing.T) {
 func TestMessageSendRateLimit_AfterJWTAuthLikeRouter(t *testing.T) {
 	s := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
-	repo := repository.NewFixedWindowRateLimiter(rdb)
 	p := usecase.DefaultRateLimitPolicy()
 	p.MessageLimit = 2
+	repo := repository.NewRateLimitRepository(rdb)
 	uc := usecase.NewRateLimitUseCase(repo, p)
 
 	uid := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
@@ -183,9 +213,9 @@ func TestMessageSendRateLimit_AfterJWTAuthLikeRouter(t *testing.T) {
 func TestWSConnectRateLimit_PerUser(t *testing.T) {
 	s := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
-	repo := repository.NewFixedWindowRateLimiter(rdb)
 	p := usecase.DefaultRateLimitPolicy()
 	p.WSConnectLimit = 1
+	repo := repository.NewRateLimitRepository(rdb)
 	uc := usecase.NewRateLimitUseCase(repo, p)
 
 	e := echo.New()

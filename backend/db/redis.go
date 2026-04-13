@@ -10,24 +10,16 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// OpenRedis は環境変数から Redis クライアントを開く。
-// REDIS_ADDR が空のときはレート制限無効用に (nil, nil) を返す。
-//
-//	REDIS_ADDR      例: localhost:6379（必須でない場合は空で Redis レート制限をスキップ）
-//	REDIS_PASSWORD  省略可
-//	REDIS_DB        省略時 0
-func OpenRedis(ctx context.Context) (*redis.Client, error) {
+func OpenRedis() *redis.Client {
 	addr := strings.TrimSpace(os.Getenv("REDIS_ADDR"))
 	if addr == "" {
-		return nil, nil
+		return nil
 	}
 	dbNum := 0
 	if s := strings.TrimSpace(os.Getenv("REDIS_DB")); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil {
-			return nil, err
+		if n, err := strconv.Atoi(s); err == nil {
+			dbNum = n
 		}
-		dbNum = n
 	}
 	pass := os.Getenv("REDIS_PASSWORD")
 
@@ -36,11 +28,8 @@ func OpenRedis(ctx context.Context) (*redis.Client, error) {
 		Password: pass,
 		DB:       dbNum,
 	})
-	ctxPing, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctxPing, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := rdb.Ping(ctxPing).Err(); err != nil {
-		_ = rdb.Close()
-		return nil, err
-	}
-	return rdb, nil
+	_ = rdb.Ping(ctxPing).Err()
+	return rdb
 }

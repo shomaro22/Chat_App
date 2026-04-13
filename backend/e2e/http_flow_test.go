@@ -5,7 +5,6 @@ package e2e_test
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -104,12 +103,12 @@ func newTestEcho(t *testing.T, gormDB *gorm.DB, publicRoot, bootstrapAdminEmail 
 	adminUC := usecase.NewAdminUseCase(users, rooms, members)
 
 	validateSession := func(c echo.Context, uid uuid.UUID, _ entity.UserRole) error {
-		u, err := auth.RequireActiveUser(c.Request().Context(), users, uid)
+		u, err := users.FindByID(c.Request().Context(), uid)
 		if err != nil {
-			if errors.Is(err, auth.ErrNotActive) {
-				return echo.NewHTTPError(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-			}
 			return echo.NewHTTPError(http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		}
+		if u == nil || !u.Active {
+			return echo.NewHTTPError(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		}
 		c.Set(middleware.ContextUserRoleKey, string(u.Role))
 		return nil

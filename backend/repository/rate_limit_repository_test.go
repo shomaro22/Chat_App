@@ -10,88 +10,63 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFixedWindowRateLimiter_UnderLimitThen429ThenTTLRecovery(t *testing.T) {
+func TestRateLimiter_AllowUnderLimitThenReject(t *testing.T) {
 	s := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
-	lim := NewFixedWindowRateLimiter(rdb)
+	lim := NewRateLimitRepository(rdb)
 	ctx := context.Background()
-	const max int64 = 5
-	const win = 2 * time.Second
+	key := "rl:test:a"
 
-	for i := int64(0); i < max; i++ {
-		ok, err := lim.Allow(ctx, "rl:test:one", max, win)
-		require.NoError(t, err)
-		require.True(t, ok, "i=%d", i)
-	}
-	ok, err := lim.Allow(ctx, "rl:test:one", max, win)
-	require.NoError(t, err)
-	require.False(t, ok)
-
-	s.FastForward(win + time.Millisecond)
-	ok, err = lim.Allow(ctx, "rl:test:one", max, win)
+	ok, _, err := lim.Allow(ctx, key, 1, time.Minute)
 	require.NoError(t, err)
 	require.True(t, ok)
+	ok, retrySec, err := lim.Allow(ctx, key, 1, time.Minute)
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.GreaterOrEqual(t, retrySec, int64(1))
 }
 
-func TestFixedWindowRateLimiter_KeySeparation(t *testing.T) {
+func TestRateLimiter_KeySeparation(t *testing.T) {
 	s := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
-	lim := NewFixedWindowRateLimiter(rdb)
+	lim := NewRateLimitRepository(rdb)
 	ctx := context.Background()
-	const max int64 = 2
-	const win = time.Minute
 
-	for i := int64(0); i < max; i++ {
-		ok, err := lim.Allow(ctx, "rl:test:a", max, win)
-		require.NoError(t, err)
-		require.True(t, ok)
-	}
-	ok, err := lim.Allow(ctx, "rl:test:a", max, win)
+	ok, _, err := lim.Allow(ctx, "rl:test:a", 1, time.Minute)
+	require.NoError(t, err)
+	require.True(t, ok)
+	ok, _, err = lim.Allow(ctx, "rl:test:a", 1, time.Minute)
 	require.NoError(t, err)
 	require.False(t, ok)
-
-	ok, err = lim.Allow(ctx, "rl:test:b", max, win)
+	ok, _, err = lim.Allow(ctx, "rl:test:b", 1, time.Minute)
 	require.NoError(t, err)
 	require.True(t, ok)
 }
 
-func TestFixedWindowRateLimiter_LoadScriptStillWorks(t *testing.T) {
-	s := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
-	lim := NewFixedWindowRateLimiter(rdb)
-	require.NoError(t, lim.LoadScript(context.Background()))
-	ctx := context.Background()
-	ok, err := lim.Allow(ctx, "rl:test:sha", 1, time.Minute)
+func TestRateLimiter_NilRedisAlwaysAllow(t *testing.T) {
+	lim := NewRateLimitRepository(nil)
+	ok, retrySec, err := lim.Allow(context.Background(), "rl:test:nil", 1, time.Minute)
 	require.NoError(t, err)
 	require.True(t, ok)
-	ok, err = lim.Allow(ctx, "rl:test:sha", 1, time.Minute)
-	require.NoError(t, err)
-	require.False(t, ok)
+	require.Zero(t, retrySec)
 }
 
-func TestFixedWindowRateLimiter_NilRedisAlwaysAllow(t *testing.T) {
-	lim := NewFixedWindowRateLimiter(nil)
-	ok, err := lim.Allow(context.Background(), "k", 1, time.Second)
-	require.NoError(t, err)
-	require.True(t, ok)
-}
-
-func TestFixedWindowRateLimiter_TypedNilClientAlwaysAllow(t *testing.T) {
+func TestRateLimiter_TypedNilClientAlwaysAllow(t *testing.T) {
 	var c *redis.Client
-	lim := NewFixedWindowRateLimiter(c)
-	ok, err := lim.Allow(context.Background(), "k", 1, time.Second)
+	lim := NewRateLimitRepository(c)
+	ok, retrySec, err := lim.Allow(context.Background(), "rl:test:nil-typed", 1, time.Minute)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.NoError(t, lim.LoadScript(context.Background()))
+	require.Zero(t, retrySec)
 }
 
-func TestFixedWindowRateLimiter_RedisErrorPropagates(t *testing.T) {
+func TestRateLimiter_RedisErrorPropagates(t *testing.T) {
 	s := miniredis.RunT(t)
 	addr := s.Addr()
 	rdb := redis.NewClient(&redis.Options{Addr: addr})
-	lim := NewFixedWindowRateLimiter(rdb)
+	lim := NewRateLimitRepository(rdb)
 	s.Close()
-	ok, err := lim.Allow(context.Background(), "rl:test:err", 1, time.Minute)
+	ok, _, err := lim.Allow(context.Background(), "rl:test:err", 1, time.Minute)
 	require.Error(t, err)
 	require.False(t, ok)
 	_ = rdb.Close()
