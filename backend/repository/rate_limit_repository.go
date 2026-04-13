@@ -2,15 +2,12 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-// redisCmdableIsNil は *redis.Client の typed nil を redis.Cmdable に渡したときの落とし穴を避ける。
-// （インターフェース値は非 nil だが動的値が nil のとき、rdb == nil が false になり得る）
 func redisCmdableIsNil(c redis.Cmdable) bool {
 	if c == nil {
 		return true
@@ -24,71 +21,105 @@ func redisCmdableIsNil(c redis.Cmdable) bool {
 	}
 }
 
-// RateLimitRepository は固定窓カウンタによるレート制限の永続化。
+// RateLimitRepository は token bucket 実行のみを提供する。
 type RateLimitRepository interface {
-	Allow(ctx context.Context, key string, max int64, window time.Duration) (bool, error)
+	Allow(ctx context.Context, key string, max int64, window time.Duration) (bool, int64, error)
 }
 
-// incrExpireOnceLua は INCR と初回のみ EXPIRE を原子的に行う（固定窓カウンタ）。
-const incrExpireOnceLua = `
-local c = redis.call('INCR', KEYS[1])
-if c == 1 then
-  redis.call('EXPIRE', KEYS[1], ARGV[1])
-end
-return c
-`
-
-// FixedWindowRateLimiter は Redis 上の固定時間窓ごとのカウントで上限を判定する。
-type FixedWindowRateLimiter struct {
+// RateLimiter は Redis 上の token bucket で上限を判定する。
+type RateLimiter struct {
 	rdb redis.Cmdable
-	sha string
+	lua *redis.Script
 }
 
-var _ RateLimitRepository = (*FixedWindowRateLimiter)(nil)
+var _ RateLimitRepository = (*RateLimiter)(nil)
 
-// NewFixedWindowRateLimiter は rdb が nil のとき Allow は常に true（レート制限オフ）。
-func NewFixedWindowRateLimiter(rdb redis.Cmdable) *FixedWindowRateLimiter {
+// NewRateLimitRepository は rdb が nil のとき Allow は常に true（レート制限オフ）。
+func NewRateLimitRepository(rdb redis.Cmdable) *RateLimiter {
 	if redisCmdableIsNil(rdb) {
-		return &FixedWindowRateLimiter{}
+		return &RateLimiter{}
 	}
-	return &FixedWindowRateLimiter{rdb: rdb}
+	return &RateLimiter{
+		rdb: rdb,
+		lua: redis.NewScript(`
+local key = KEYS[1]
+local rate = tonumber(ARGV[1])
+local cap = tonumber(ARGV[2])
+local cost = tonumber(ARGV[3])
+local now_ms = tonumber(ARGV[4])
+local ttl_sec = tonumber(ARGV[5])
+
+if rate <= 0 or cap <= 0 or cost <= 0 then
+  return {1, 0}
+end
+
+local vals = redis.call('HMGET', key, 'tokens', 'ts')
+local tokens = tonumber(vals[1])
+local ts = tonumber(vals[2])
+if not tokens then
+  tokens = cap
+end
+if not ts then
+  ts = now_ms
+end
+
+local elapsed_ms = now_ms - ts
+if elapsed_ms < 0 then
+  elapsed_ms = 0
+end
+local refill = elapsed_ms * rate / 1000.0
+tokens = math.min(cap, tokens + refill)
+
+local allowed = 0
+local retry_ms = 0
+if tokens >= cost then
+  tokens = tokens - cost
+  allowed = 1
+else
+  retry_ms = math.ceil((cost - tokens) / rate * 1000.0)
+end
+
+redis.call('HMSET', key, 'tokens', tokens, 'ts', now_ms)
+redis.call('EXPIRE', key, ttl_sec)
+return {allowed, retry_ms}
+`),
+	}
 }
 
-// Allow は key の窓内カウントを 1 増やし、max 以下なら true。
-// max は「許容する試行回数」（例 max=20 なら 20 回目まで true、21 回目 false）。
-func (l *FixedWindowRateLimiter) Allow(ctx context.Context, key string, max int64, window time.Duration) (bool, error) {
+func (l *RateLimiter) Allow(ctx context.Context, key string, max int64, window time.Duration) (bool, int64, error) {
 	if l == nil || redisCmdableIsNil(l.rdb) {
-		return true, nil
+		return true, 0, nil
 	}
-	if key == "" || max <= 0 {
-		return true, nil
+	if max <= 0 || window <= 0 {
+		return true, 0, nil
 	}
-	sec := int64(window / time.Second)
-	if sec < 1 {
-		sec = 1
+	ratePerSec := float64(max) / window.Seconds()
+	capacity := max
+	cost := int64(1)
+	now := time.Now()
+	if key == "" || ratePerSec <= 0 || capacity <= 0 || cost <= 0 {
+		return true, 0, nil
 	}
-	var count int64
-	var err error
-	if l.sha != "" {
-		count, err = l.rdb.EvalSha(ctx, l.sha, []string{key}, sec).Int64()
-	} else {
-		count, err = l.rdb.Eval(ctx, incrExpireOnceLua, []string{key}, sec).Int64()
+	ttl := int64(float64(capacity)/ratePerSec + 2.0)
+	if ttl < 1 {
+		ttl = 1
 	}
+	res, err := l.lua.Run(ctx, l.rdb, []string{key}, ratePerSec, capacity, cost, now.UnixMilli(), ttl).Result()
 	if err != nil {
-		return false, fmt.Errorf("redis rate limit allow: %w", err)
+		return false, 0, err
 	}
-	return count <= max, nil
-}
-
-// LoadScript は本番 Redis で EVAL を避けるため SCRIPT LOAD を行う（任意）。
-func (l *FixedWindowRateLimiter) LoadScript(ctx context.Context) error {
-	if l == nil || redisCmdableIsNil(l.rdb) {
-		return nil
+	arr, ok := res.([]any)
+	if !ok || len(arr) < 2 {
+		return false, 0, nil
 	}
-	s, err := l.rdb.ScriptLoad(ctx, incrExpireOnceLua).Result()
-	if err != nil {
-		return err
+	allowed, ok1 := arr[0].(int64)
+	retryMs, ok2 := arr[1].(int64)
+	if !ok1 || !ok2 {
+		return false, 0, nil
 	}
-	l.sha = s
-	return nil
+	retrySec := retryMs / 1000
+	if retryMs%1000 != 0 {
+		retrySec++
+	}
+	return allowed == 1, retrySec, nil
 }

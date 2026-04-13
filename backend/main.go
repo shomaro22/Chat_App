@@ -1,8 +1,6 @@
 package main
 
 import (
-	"context"
-	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -71,19 +69,13 @@ func main() {
 
 	log.Printf("db ok; http %s", addr)
 
-	rdb, err := db.OpenRedis(context.Background())
-	if err != nil {
-		log.Fatalf("redis: %v", err)
-	}
-	rateLim := repository.NewFixedWindowRateLimiter(rdb)
+	rdb := db.OpenRedis()
+	rateLim := repository.NewRateLimitRepository(rdb)
 	if rdb != nil {
 		defer func() { _ = rdb.Close() }()
 		log.Printf("redis rate limit: connected (%s)", strings.TrimSpace(os.Getenv("REDIS_ADDR")))
-		if err := rateLim.LoadScript(context.Background()); err != nil {
-			log.Printf("redis SCRIPT LOAD (optional): %v", err)
-		}
 	} else {
-		log.Println("redis rate limit: disabled (REDIS_ADDR empty; all Allow pass-through)")
+		log.Println("redis rate limit: disabled (fail-open mode)")
 	}
 
 	hub := wshub.NewConnectionManager()
@@ -105,12 +97,12 @@ func main() {
 
 	roomCtl := controller.NewRoomController(controller.NewRoomUseCaseAdapter(roomUC))
 	validateSession := func(c echo.Context, uid uuid.UUID, _ entity.UserRole) error {
-		u, err := auth.RequireActiveUser(c.Request().Context(), users, uid)
+		u, err := users.FindByID(c.Request().Context(), uid)
 		if err != nil {
-			if errors.Is(err, auth.ErrNotActive) {
-				return echo.NewHTTPError(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-			}
 			return echo.NewHTTPError(http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		}
+		if u == nil || !u.Active {
+			return echo.NewHTTPError(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		}
 		c.Set(middleware.ContextUserRoleKey, string(u.Role))
 		return nil

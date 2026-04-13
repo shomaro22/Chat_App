@@ -55,7 +55,7 @@ func LoginRateLimit(uc *usecase.RateLimitUseCase) echo.MiddlewareFunc {
 				Email string `json:"email"`
 			}
 			_ = json.Unmarshal(body, &partial)
-			res := uc.CheckLogin(c.Request().Context(), partial.Email, c.RealIP())
+			res := uc.CheckLogin(c.Request().Context(), c.RealIP(), partial.Email)
 			return applyRateLimit(c, res, next)
 		}
 	}

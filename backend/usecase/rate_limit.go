@@ -10,33 +10,37 @@ import (
 	"github.com/google/uuid"
 )
 
-// RateLimitPolicy はエンドポイント別の固定窓レート制限（試行回数と窓幅）。
+// RateLimitPolicy はエンドポイント別のしきい値ポリシー。
 type RateLimitPolicy struct {
-	LoginLimit        int64
-	LoginWindow       time.Duration
-	RegisterLimit     int64
-	RegisterWindow    time.Duration
-	MessageLimit      int64
-	MessageWindow     time.Duration
-	MediaLimit        int64
-	MediaWindow       time.Duration
-	WSConnectLimit    int64
-	WSConnectWindow   time.Duration
+	LoginIPLimit     int64
+	LoginIPWindow    time.Duration
+	LoginEmailLimit  int64
+	LoginEmailWindow time.Duration
+	RegisterLimit    int64
+	RegisterWindow   time.Duration
+	MessageLimit     int64
+	MessageWindow    time.Duration
+	MediaLimit       int64
+	MediaWindow      time.Duration
+	WSConnectLimit   int64
+	WSConnectWindow  time.Duration
 }
 
 func DefaultRateLimitPolicy() RateLimitPolicy {
 	w := time.Minute
 	return RateLimitPolicy{
-		LoginLimit:      20,
-		LoginWindow:     w,
-		RegisterLimit:   10,
-		RegisterWindow:  w,
-		MessageLimit:    60,
-		MessageWindow:   w,
-		MediaLimit:      30,
-		MediaWindow:     w,
-		WSConnectLimit:  30,
-		WSConnectWindow: w,
+		LoginIPLimit:     20,
+		LoginIPWindow:    w,
+		LoginEmailLimit:  10,
+		LoginEmailWindow: w,
+		RegisterLimit:    10,
+		RegisterWindow:   w,
+		MessageLimit:     60,
+		MessageWindow:    w,
+		MediaLimit:       30,
+		MediaWindow:      w,
+		WSConnectLimit:   30,
+		WSConnectWindow:  w,
 	}
 }
 
@@ -57,44 +61,55 @@ func NewRateLimitUseCase(repo repository.RateLimitRepository, policy RateLimitPo
 	return &RateLimitUseCase{repo: repo, policy: policy}
 }
 
-func retrySeconds(window time.Duration) int64 {
-	sec := int64(window.Round(time.Second) / time.Second)
-	if sec < 1 {
-		return 1
+func toRateLimitResult(ok bool, retryAfterSec int64, err error) RateLimitResult {
+	if err != nil {
+		return RateLimitResult{Allowed: true, Err: err}
 	}
-	return sec
+	if !ok {
+		return RateLimitResult{Allowed: false, RetryAfterSeconds: retryAfterSec}
+	}
+	return RateLimitResult{Allowed: true}
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (u *RateLimitUseCase) allow(ctx context.Context, key string, max int64, window time.Duration) RateLimitResult {
 	if u == nil || u.repo == nil {
 		return RateLimitResult{Allowed: true}
 	}
-	ok, err := u.repo.Allow(ctx, key, max, window)
-	if err != nil {
-		return RateLimitResult{Allowed: true, Err: err}
-	}
-	if !ok {
-		return RateLimitResult{Allowed: false, RetryAfterSeconds: retrySeconds(window)}
-	}
-	return RateLimitResult{Allowed: true}
+	ok, retryAfterSec, err := u.repo.Allow(ctx, key, max, window)
+	return toRateLimitResult(ok, retryAfterSec, err)
 }
 
-// CheckLogin は POST /auth/login 用。email が空でなければ rl:login:email:{email}、空なら IP。
-func (u *RateLimitUseCase) CheckLogin(ctx context.Context, email, clientIP string) RateLimitResult {
-	email = strings.ToLower(strings.TrimSpace(email))
-	var key string
-	if email != "" {
-		key = "rl:login:email:" + email
-	} else {
-		key = "rl:login:ip:" + strings.TrimSpace(clientIP)
+// CheckLogin は POST /auth/login 用。IP と email の両方を判定し、どちらかが超過なら拒否する。
+func (u *RateLimitUseCase) CheckLogin(ctx context.Context, clientIP, email string) RateLimitResult {
+	ip := strings.TrimSpace(clientIP)
+	normalizedEmail := strings.ToLower(strings.TrimSpace(email))
+	ipRes := u.allow(ctx, "rl:login:ip:"+ip, u.policy.LoginIPLimit, u.policy.LoginIPWindow)
+	if normalizedEmail == "" {
+		return ipRes
 	}
-	return u.allow(ctx, key, u.policy.LoginLimit, u.policy.LoginWindow)
+	emailRes := u.allow(ctx, "rl:login:email:"+normalizedEmail, u.policy.LoginEmailLimit, u.policy.LoginEmailWindow)
+	return RateLimitResult{
+		Allowed:           ipRes.Allowed && emailRes.Allowed,
+		RetryAfterSeconds: maxInt64(ipRes.RetryAfterSeconds, emailRes.RetryAfterSeconds),
+		Err: func() error {
+			if ipRes.Err != nil {
+				return ipRes.Err
+			}
+			return emailRes.Err
+		}(),
+	}
 }
 
 // CheckRegister は POST /auth/register 用。rl:register:ip:{ip}
 func (u *RateLimitUseCase) CheckRegister(ctx context.Context, clientIP string) RateLimitResult {
-	key := "rl:register:ip:" + strings.TrimSpace(clientIP)
-	return u.allow(ctx, key, u.policy.RegisterLimit, u.policy.RegisterWindow)
+	return u.allow(ctx, "rl:register:ip:"+strings.TrimSpace(clientIP), u.policy.RegisterLimit, u.policy.RegisterWindow)
 }
 
 // CheckMessageSend は POST /rooms/:id/messages 用。
@@ -111,8 +126,7 @@ func (u *RateLimitUseCase) CheckMediaUpload(ctx context.Context, userID uuid.UUI
 	if userID == uuid.Nil {
 		return RateLimitResult{Allowed: true}
 	}
-	key := "rl:upload:" + userID.String()
-	return u.allow(ctx, key, u.policy.MediaLimit, u.policy.MediaWindow)
+	return u.allow(ctx, "rl:upload:"+userID.String(), u.policy.MediaLimit, u.policy.MediaWindow)
 }
 
 // CheckWSConnect は GET /ws 用（JWT 後）。
@@ -120,6 +134,5 @@ func (u *RateLimitUseCase) CheckWSConnect(ctx context.Context, userID uuid.UUID)
 	if userID == uuid.Nil {
 		return RateLimitResult{Allowed: true}
 	}
-	key := "rl:ws:" + userID.String()
-	return u.allow(ctx, key, u.policy.WSConnectLimit, u.policy.WSConnectWindow)
+	return u.allow(ctx, "rl:ws:"+userID.String(), u.policy.WSConnectLimit, u.policy.WSConnectWindow)
 }
