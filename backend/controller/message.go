@@ -12,7 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-const maxMessageMultipartMemory = 12 << 20 // メディア上限 10MiB + 余裕
+const maxMessageMultipartMemory = 12 << 20 // メディア上限 10MiB
 
 // MessageController はメッセージ関連の HTTP ハンドラと作成時の WS 通知。
 type MessageController struct {

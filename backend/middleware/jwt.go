@@ -64,7 +64,7 @@ func AuthUserID(c echo.Context) (uuid.UUID, bool) {
 }
 
 // JWTAuth は TokenParser で検証し、コンテキストに user_id / role を載せる。
-// validate が非 nil のときはその後に呼び出し、失敗時は 401 を返す（validate 内で ContextUserRoleKey を更新してよい）。
+// validate が非 nil のときはその後に呼び出し、失敗時は 401 を返す
 func JWTAuth(parse TokenParser, validate SessionValidator) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {

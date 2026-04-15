@@ -1,12 +1,7 @@
 package usecase
 
 // メッセージと画像の結合（API 契約）:
-//
-// 1. POST /media/images のレスポンスの url（/static/uploads/<uuid>.<ext>）だけを JSON の image_url に渡す。
-// 2. 許可パターン: テキストのみ / 画像のみ / テキスト＋画像（キャプション付き）。正規化後に両方欠けると ErrEmptyMessage。
-// 3. multipart/form-data では file と content を任意組み合わせ（少なくともどちらか必須）。file はサーバーが同形式の url に保存してメッセージに結合。
-// 4. image_url の形式検証は validateMessageImageURL（パストラバーサル禁止）。
-//
+
 import (
 	"context"
 	"strings"
@@ -32,7 +27,6 @@ type ListedMessage struct {
 	ReadCount  *int64
 }
 
-// PublicUploadDeleter は論理削除時に /static/uploads の実ファイルを消す実装（省略可）。
 type PublicUploadDeleter interface {
 	DeleteByPublicURL(urlPath string)
 }
@@ -195,7 +189,6 @@ func normalizeMessageListLimit(limit int) int {
 	return limit
 }
 
-// DeleteMessage は送信者本人によるメッセージの論理削除を行う。戻り値の room_id は WS 通知用（既に削除済みの場合もルーム ID を返す）。
 func (u *MessageUseCase) DeleteMessage(ctx context.Context, messageID, userID uuid.UUID) (uuid.UUID, error) {
 	if messageID == uuid.Nil {
 		return uuid.Nil, ErrInvalidMessageID

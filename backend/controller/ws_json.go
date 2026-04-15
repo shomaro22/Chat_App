@@ -7,23 +7,6 @@ import (
 )
 
 // WebSocket イベント契約（サーバー ↔ クライアントで固定）
-//
-// # 共通
-//   - 全フレームは TextMessage の JSON オブジェクト（サーバーからの WebSocket Ping は非 JSON）。
-//   - サーバー → クライアントの各イベントに schema_version を付与（WSEventSchemaVersion）。
-//   - クライアント → サーバーは schema_version を省略可（0 とみなす）。WSClientSchemaVersion のみ許可。
-//
-// # Presence（オンライン）
-//   - online 定義: 当該ユーザーに登録済み WebSocket 接続が 1 本以上ある状態。
-//   - 複数接続: 同一 user の接続数はハブで集約。接続追加で 0→1 になったときだけ「オンライン化」、
-//     削除で 1→0 になったときだけ「オフライン化」とみなす（中間の本数変化では presence_updated を送らない）。
-//   - presence_updated: 上記の遷移が起きたとき、当該ユーザーが参加しているルームの購読者へブロードキャスト
-//     （同一接続が複数ルームを購読していても、その接続へは 1 回にまとめる）。
-//
-// # Keepalive
-//   - サーバー: WSPingInterval ごとに WebSocket Ping フレームを送信。クライアントは Pong で応答すること。
-//   - 読み取り: 最後に Pong を受信（またはメッセージ処理）から WSReadDeadline 以内に読み取りが無いと切断扱い。
-//   - 任意: クライアントが JSON {"type":"ping","schema_version":1} を送ると {"type":"pong",...} を返す（room_id 不要）。
 
 // WSEventSchemaVersion はサーバー → クライアントのイベント JSON の契約バージョン。
 const WSEventSchemaVersion = 1
@@ -31,7 +14,7 @@ const WSEventSchemaVersion = 1
 // WSClientSchemaVersion はクライアント → サーバーで許可する schema_version（0 は省略と同等）。
 const WSClientSchemaVersion = 1
 
-// WSPingInterval / WSReadDeadline は接続維持の実装値（本コメントと同期すること）。
+// WSPingInterval / WSReadDeadline は接続維持の実装値
 var (
 	WSPingInterval = 30 * time.Second
 	WSReadDeadline = 90 * time.Second

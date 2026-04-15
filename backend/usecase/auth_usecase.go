@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// AuthUseCase はログイン・登録・トークン発行のオーケストレーション。JWT / パスワードは auth パッケージに委譲する。
+// AuthUseCase はログイン・登録・トークン発行。JWT / パスワードは auth パッケージに委譲する。
 type AuthUseCase struct {
 	Users  repository.UserRepository
 	Tokens *auth.TokenService
