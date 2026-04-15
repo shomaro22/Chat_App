@@ -115,7 +115,7 @@ func main() {
 	mediaCtl := controller.NewMediaController(mediaUC)
 	adminCtl := controller.NewAdminController(adminUC, wsHubAdapter{hub}, hub, presenceUC)
 
-	rateUC := usecase.NewRateLimitUseCase(rateLim, usecase.DefaultRateLimitPolicy())
+	rateUC := usecase.NewRateLimitUseCase(rateLim)
 	e := router.New(router.Config{
 		Auth:            authCtl,
 		Room:            roomCtl,

@@ -84,6 +84,10 @@ func (h hubOnlineLookup) IsUserOnline(userID uuid.UUID) bool {
 }
 
 func newTestEcho(t *testing.T, gormDB *gorm.DB, publicRoot, bootstrapAdminEmail string) *echo.Echo {
+	return newTestEchoWithRateLimiter(t, gormDB, publicRoot, bootstrapAdminEmail, nil)
+}
+
+func newTestEchoWithRateLimiter(t *testing.T, gormDB *gorm.DB, publicRoot, bootstrapAdminEmail string, rateRepo repository.RateLimitRepository) *echo.Echo {
 	t.Helper()
 	hub := wshub.NewConnectionManager()
 	users := repository.NewUserRepository(gormDB)
@@ -101,6 +105,7 @@ func newTestEcho(t *testing.T, gormDB *gorm.DB, publicRoot, bootstrapAdminEmail 
 	readUC := usecase.NewMessageReadUseCase(msgRepo, readRepo, rooms, users)
 	presenceUC := usecase.NewPresenceUseCase(rooms)
 	adminUC := usecase.NewAdminUseCase(users, rooms, members)
+	rateUC := usecase.NewRateLimitUseCase(rateRepo)
 
 	validateSession := func(c echo.Context, uid uuid.UUID, _ entity.UserRole) error {
 		u, err := users.FindByID(c.Request().Context(), uid)
@@ -114,7 +119,7 @@ func newTestEcho(t *testing.T, gormDB *gorm.DB, publicRoot, bootstrapAdminEmail 
 		return nil
 	}
 
-	return router.New(router.Config{
+	cfg := router.Config{
 		Auth:            controller.NewAuthController(authUC, bootstrapAdminEmail),
 		Room:            controller.NewRoomController(controller.NewRoomUseCaseAdapter(roomUC)),
 		Messages:        controller.NewMessageController(controller.NewMessageUseCaseAdapter(msgUC), hub, mediaUC),
@@ -125,7 +130,13 @@ func newTestEcho(t *testing.T, gormDB *gorm.DB, publicRoot, bootstrapAdminEmail 
 		ParseJWT:        authUC.ParseToken,
 		ValidateSession: validateSession,
 		StaticDir:       publicRoot,
-	})
+	}
+	if rateRepo != nil {
+		cfg.RateLimitLogin = []echo.MiddlewareFunc{middleware.LoginRateLimit(rateUC)}
+		cfg.RateLimitRegister = []echo.MiddlewareFunc{middleware.RegisterRateLimit(rateUC)}
+		cfg.RateLimitAfterJWT = []echo.MiddlewareFunc{middleware.AfterAuthRateLimits(rateUC)}
+	}
+	return router.New(cfg)
 }
 
 func doRequest(t *testing.T, e *echo.Echo, method, path, bearer string, body any, wantStatus int) *httptest.ResponseRecorder {

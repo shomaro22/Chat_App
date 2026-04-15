@@ -11,22 +11,20 @@ import (
 
 // Config は Echo に載せるハンドラとミドルウェア設定。
 type Config struct {
-	Auth            *controller.AuthController
-	Room            *controller.RoomController
-	Messages        *controller.MessageController
-	Reads           *controller.MessageReadController
-	WS              *controller.WSController
-	Media           *controller.MediaController
-	Admin           *controller.AdminController
-	ParseJWT        middleware.TokenParser
-	ValidateSession middleware.SessionValidator // nil 可（JWT のみ検証）
-	StaticDir       string                      // ローカルパス（/static で配信）
-	// PreAuthMiddleware はルート登録前に e.Use される。
+	Auth              *controller.AuthController
+	Room              *controller.RoomController
+	Messages          *controller.MessageController
+	Reads             *controller.MessageReadController
+	WS                *controller.WSController
+	Media             *controller.MediaController
+	Admin             *controller.AdminController
+	ParseJWT          middleware.TokenParser
+	ValidateSession   middleware.SessionValidator // nil 可（JWT のみ検証）
+	StaticDir         string                      // ローカルパス（/static で配信）
 	PreAuthMiddleware []echo.MiddlewareFunc
 	// RateLimitLogin / RateLimitRegister は該当 POST にだけ適用（空なら未適用）。
 	RateLimitLogin    []echo.MiddlewareFunc
 	RateLimitRegister []echo.MiddlewareFunc
-	// RateLimitAfterJWT は JWT 検証直後の api グループに Use される（例: メッセージ送信・画像・WS）。
 	// 空なら未適用。
 	RateLimitAfterJWT []echo.MiddlewareFunc
 }

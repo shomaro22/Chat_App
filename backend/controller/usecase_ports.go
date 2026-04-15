@@ -17,7 +17,7 @@ type AuthUseCase interface {
 	CreateTokenForUser(ctx context.Context, userID uuid.UUID) (accessToken string, err error)
 }
 
-// RoomUseCase はルーム系ユースケースの抽象。
+// RoomUseCase はルーム系ユースケース
 type RoomUseCase interface {
 	GetJoinedRooms(ctx context.Context, userID uuid.UUID) ([]entity.Room, error)
 	GetJoinedRoomSummaries(ctx context.Context, userID uuid.UUID, limit, offset int, updatedDesc bool) ([]JoinedRoomSummary, error)
@@ -32,32 +32,32 @@ type RoomUseCase interface {
 	CanSubscribeWebSocket(ctx context.Context, roomID, userID uuid.UUID) error
 }
 
-// MessageUseCase はメッセージ送受信・削除の抽象。
+// MessageUseCase はメッセージ送受信・削除
 type MessageUseCase interface {
 	SendMessage(ctx context.Context, roomID, senderID uuid.UUID, content, imageURL *string) (*entity.Message, error)
 	ListMessages(ctx context.Context, roomID, userID uuid.UUID, beforeID, afterID *uuid.UUID, limit int, orderDesc, includeReadCount bool) ([]ListedMessage, error)
 	DeleteMessage(ctx context.Context, messageID, userID uuid.UUID) (uuid.UUID, error)
 }
 
-// MessageReadUseCase は既読更新・集計の抽象。
+// MessageReadUseCase は既読更新・集計
 type MessageReadUseCase interface {
 	MarkAsRead(ctx context.Context, userID, roomID, messageID uuid.UUID) (*MarkAsReadResult, error)
 	GetRoomReadState(ctx context.Context, userID, roomID uuid.UUID) (*RoomReadState, error)
 }
 
-// PresenceJoinedRooms はプレゼンス配信先ルーム一覧の解決用抽象。
+// PresenceJoinedRooms はプレゼンス配信先ルーム一覧の解決用
 type PresenceJoinedRooms interface {
 	JoinedRoomIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 }
 
-// AdminUseCase は管理者 API から参照する操作の抽象。
+// AdminUseCase は管理者 API から参照する操作
 type AdminUseCase interface {
 	SetUserActive(ctx context.Context, adminID, targetUserID uuid.UUID, active bool) error
 	SetRoomFrozen(ctx context.Context, adminID, roomID uuid.UUID, frozen bool) error
 	ForceRemoveMember(ctx context.Context, adminID, roomID, targetUserID uuid.UUID) error
 }
 
-// MediaUseCase は画像アップロード保存の抽象。
+// MediaUseCase は画像アップロード保存
 type MediaUseCase interface {
 	SaveUploadedImage(contentType string, r io.Reader) (urlPath string, err error)
 }

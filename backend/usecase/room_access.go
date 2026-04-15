@@ -28,13 +28,6 @@ func RoomForActiveMember(ctx context.Context, rooms repository.RoomRepository, r
 	return r, nil
 }
 
-// RoomForActiveMemberWritable はアクティブメンバーかつルームが凍結していないことを検証する。
-// 凍結ルーム（FrozenAt != nil）のときの統一ルール:
-//
-//	許可（RoomForActiveMember）: メッセージ一覧・ルーム詳細・read-state 取得など閲覧系 HTTP
-//	拒否 ErrRoomFrozen（本関数経由）: メッセージ送信・論理削除・既読更新・WS subscribe
-//
-// WebSocket の購読可否は RoomForWebSocketSubscribe が同じく ErrRoomFrozen を返す。
 func RoomForActiveMemberWritable(ctx context.Context, rooms repository.RoomRepository, roomID, userID uuid.UUID) (*entity.Room, error) {
 	r, err := RoomForActiveMember(ctx, rooms, roomID, userID)
 	if err != nil {
