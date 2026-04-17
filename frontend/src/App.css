@@ -1,0 +1,261 @@
+.chat-shell {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  border-inline: 1px solid var(--border);
+  box-sizing: border-box;
+}
+
+.rooms-list {
+  width: 280px;
+  border-right: 1px solid var(--border);
+  padding: 16px 12px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rooms-list h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.create-room-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.create-open-button {
+  margin-bottom: 8px;
+}
+
+.switch-row {
+  display: flex;
+  gap: 6px;
+}
+
+.pill-button {
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-h);
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.pill-button.active {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+}
+
+.room-create-input,
+.room-create-textarea {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  font-size: 12px;
+  outline: none;
+  font-family: inherit;
+}
+
+.room-create-textarea {
+  min-height: 56px;
+  resize: vertical;
+}
+
+.rooms-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.room-item {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 9999px;
+  text-decoration: none;
+  color: var(--text);
+  border: 1px solid transparent;
+}
+
+.room-item:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+}
+
+.room-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+.room-preview {
+  font-size: 12px;
+  margin-top: 2px;
+  opacity: 0.8;
+}
+
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.chat-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.8;
+}
+
+.chat-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.message-row {
+  text-align: left;
+}
+
+.message-meta {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 2px;
+  font-size: 11px;
+}
+
+.sender {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.bubble {
+  display: inline-block;
+  max-width: min(560px, 80%);
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: var(--code-bg);
+  word-break: break-word;
+  font-size: 14px;
+}
+
+.bubble.image img {
+  display: block;
+  max-width: 280px;
+  border-radius: 14px;
+}
+
+.read-receipt {
+  margin-top: 2px;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.readers-inline {
+  opacity: 0.85;
+}
+
+.chat-status {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.chat-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-input {
+  flex: 1;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  font-size: 14px;
+  outline: none;
+}
+
+.chat-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+
+.icon-button {
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  padding: 10px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.error-text {
+  color: #d64242;
+  font-size: 13px;
+}
+
+.error-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 20;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 420px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modal-card h3 {
+  margin: 0;
+  color: var(--text-h);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
