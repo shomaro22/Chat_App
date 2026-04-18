@@ -3,12 +3,12 @@ ALTER TABLE rooms ADD COLUMN direct_user_b_id UUID REFERENCES users (id);
 
 UPDATE rooms r
 SET
-    direct_user_a_id = LEAST(s.small, s.large),
-    direct_user_b_id = GREATEST(s.small, s.large)
+    direct_user_a_id = s.small,
+    direct_user_b_id = s.large
 FROM (
     SELECT m.room_id,
-        MIN(m.user_id) AS small,
-        MAX(m.user_id) AS large
+        (array_agg(m.user_id ORDER BY m.user_id))[1] AS small,
+        (array_agg(m.user_id ORDER BY m.user_id DESC))[1] AS large
     FROM room_members m
     WHERE m.left_at IS NULL
     GROUP BY m.room_id

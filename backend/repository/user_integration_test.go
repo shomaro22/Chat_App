@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"testing"
+	"time"
 
 	"chat-app/entity"
 
@@ -17,8 +18,9 @@ func TestUserRepository_FindByIDs(t *testing.T) {
 	gormDB := setupDB(t)
 	users := NewUserRepository(gormDB)
 
-	a := &entity.User{ID: uuid.New(), Name: "a", Email: "fa@example.com", PasswordHash: "x", Role: entity.UserRoleUser, Active: true}
-	b := &entity.User{ID: uuid.New(), Name: "b", Email: "fb@example.com", PasswordHash: "x", Role: entity.UserRoleUser, Active: true}
+	now := time.Now().UTC()
+	a := &entity.User{ID: uuid.New(), Name: "a", Email: "fa@example.com", PasswordHash: "x", Role: entity.UserRoleUser, Active: true, CreatedAt: now, UpdatedAt: now}
+	b := &entity.User{ID: uuid.New(), Name: "b", Email: "fb@example.com", PasswordHash: "x", Role: entity.UserRoleUser, Active: true, CreatedAt: now, UpdatedAt: now}
 	require.NoError(t, users.Create(ctx, a))
 	require.NoError(t, users.Create(ctx, b))
 

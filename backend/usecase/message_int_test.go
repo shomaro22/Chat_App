@@ -18,7 +18,9 @@ import (
 func newMessageUseCase(gormDB *gorm.DB) *MessageUseCase {
 	return NewMessageUseCase(
 		repository.NewMessageRepository(gormDB),
-		repository.NewRoomMemberRepository(gormDB),
+		repository.NewUserRepository(gormDB),
+		repository.NewRoomRepository(gormDB),
+		nil,
 	)
 }
 
@@ -29,10 +31,11 @@ func setupGroupRoomWithMembers(t *testing.T, gormDB *gorm.DB) (*entity.User, *en
 	u2 := testUser(t, gormDB, "msgu2@example.com")
 	rooms := repository.NewRoomRepository(gormDB)
 	members := repository.NewRoomMemberRepository(gormDB)
-	r := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("G"), CreatedBy: u1.ID}
+	rNow := time.Now().UTC()
+	r := &entity.Room{ID: uuid.New(), Type: entity.RoomTypeGroup, Name: strPtr("G"), CreatedBy: u1.ID, CreatedAt: rNow, UpdatedAt: rNow}
 	require.NoError(t, rooms.Create(ctx, r))
-	require.NoError(t, members.AddMember(ctx, r.ID, u1.ID))
-	require.NoError(t, members.AddMember(ctx, r.ID, u2.ID))
+	require.NoError(t, members.Create(ctx, &entity.RoomMember{ID: uuid.New(), RoomID: r.ID, UserID: u1.ID, JoinedAt: rNow}))
+	require.NoError(t, members.Create(ctx, &entity.RoomMember{ID: uuid.New(), RoomID: r.ID, UserID: u2.ID, JoinedAt: rNow}))
 	return u1, u2, r
 }
 
@@ -76,7 +79,7 @@ func TestMessageUseCase_SendMessage_OK(t *testing.T) {
 	require.Nil(t, got.ImageURL)
 	require.False(t, got.IsDeleted)
 
-	img := "https://example.com/a.png"
+	img := "/static/uploads/e2e-test-image.png"
 	got2, err := uc.SendMessage(ctx, r.ID, u1.ID, nil, &img)
 	require.NoError(t, err)
 	require.Nil(t, got2.Content)
@@ -96,16 +99,16 @@ func TestMessageUseCase_ListMessages_OK(t *testing.T) {
 	m2, err := uc.SendMessage(ctx, r.ID, u2.ID, strPtr("second"), nil)
 	require.NoError(t, err)
 
-	list, err := uc.ListMessages(ctx, r.ID, u1.ID, nil, 10)
+	list, err := uc.ListMessages(ctx, r.ID, u1.ID, nil, nil, 10, true, false)
 	require.NoError(t, err)
 	require.Len(t, list, 2)
-	require.Equal(t, m2.ID, list[0].ID)
-	require.Equal(t, m1.ID, list[1].ID)
+	require.Equal(t, m2.ID, list[0].Message.ID)
+	require.Equal(t, m1.ID, list[1].Message.ID)
 
-	page2, err := uc.ListMessages(ctx, r.ID, u1.ID, &m2.ID, 10)
+	page2, err := uc.ListMessages(ctx, r.ID, u1.ID, &m2.ID, nil, 10, true, false)
 	require.NoError(t, err)
 	require.Len(t, page2, 1)
-	require.Equal(t, m1.ID, page2[0].ID)
+	require.Equal(t, m1.ID, page2[0].Message.ID)
 }
 
 func TestMessageUseCase_ListMessages_DeletedIncluded(t *testing.T) {
@@ -117,12 +120,12 @@ func TestMessageUseCase_ListMessages_DeletedIncluded(t *testing.T) {
 
 	m, err := uc.SendMessage(ctx, r.ID, u1.ID, strPtr("x"), nil)
 	require.NoError(t, err)
-	require.NoError(t, msgRepo.SoftDelete(ctx, m.ID))
+	require.NoError(t, msgRepo.SoftDelete(ctx, m.ID, time.Now().UTC()))
 
-	list, err := uc.ListMessages(ctx, r.ID, u1.ID, nil, 10)
+	list, err := uc.ListMessages(ctx, r.ID, u1.ID, nil, nil, 10, true, false)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
-	require.True(t, list[0].IsDeleted)
+	require.True(t, list[0].Message.IsDeleted)
 }
 
 func TestMessageUseCase_ListMessages_NotMember(t *testing.T) {
@@ -132,7 +135,7 @@ func TestMessageUseCase_ListMessages_NotMember(t *testing.T) {
 	outsider := testUser(t, gormDB, "outl@example.com")
 	uc := newMessageUseCase(gormDB)
 
-	_, err := uc.ListMessages(ctx, r.ID, outsider.ID, nil, 10)
+	_, err := uc.ListMessages(ctx, r.ID, outsider.ID, nil, nil, 10, true, false)
 	require.ErrorIs(t, err, ErrNotRoomMember)
 }
 
@@ -145,7 +148,7 @@ func TestMessageUseCase_DeleteMessage_Forbidden(t *testing.T) {
 	m, err := uc.SendMessage(ctx, r.ID, u1.ID, strPtr("mine"), nil)
 	require.NoError(t, err)
 
-	err = uc.DeleteMessage(ctx, m.ID, u2.ID)
+	_, err = uc.DeleteMessage(ctx, m.ID, u2.ID)
 	require.ErrorIs(t, err, ErrForbiddenMessageEdit)
 }
 
@@ -158,7 +161,8 @@ func TestMessageUseCase_DeleteMessage_OK(t *testing.T) {
 	m, err := uc.SendMessage(ctx, r.ID, u1.ID, strPtr("delme"), nil)
 	require.NoError(t, err)
 
-	require.NoError(t, uc.DeleteMessage(ctx, m.ID, u1.ID))
+	_, err = uc.DeleteMessage(ctx, m.ID, u1.ID)
+	require.NoError(t, err)
 
 	again, err := repository.NewMessageRepository(gormDB).FindByID(ctx, m.ID)
 	require.NoError(t, err)
@@ -175,8 +179,10 @@ func TestMessageUseCase_DeleteMessage_Idempotent(t *testing.T) {
 
 	m, err := uc.SendMessage(ctx, r.ID, u1.ID, strPtr("x"), nil)
 	require.NoError(t, err)
-	require.NoError(t, uc.DeleteMessage(ctx, m.ID, u1.ID))
-	require.NoError(t, uc.DeleteMessage(ctx, m.ID, u1.ID))
+	_, err = uc.DeleteMessage(ctx, m.ID, u1.ID)
+	require.NoError(t, err)
+	_, err = uc.DeleteMessage(ctx, m.ID, u1.ID)
+	require.NoError(t, err)
 }
 
 func TestMessageUseCase_DeleteMessage_NotFound(t *testing.T) {
@@ -185,6 +191,6 @@ func TestMessageUseCase_DeleteMessage_NotFound(t *testing.T) {
 	u1, _, _ := setupGroupRoomWithMembers(t, gormDB)
 	uc := newMessageUseCase(gormDB)
 
-	err := uc.DeleteMessage(ctx, uuid.New(), u1.ID)
+	_, err := uc.DeleteMessage(ctx, uuid.New(), u1.ID)
 	require.ErrorIs(t, err, ErrMessageNotFound)
 }
