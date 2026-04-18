@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"chat-app/entity"
@@ -22,6 +23,8 @@ type RoomRepository interface {
 	UpdateGroupName(ctx context.Context, roomID uuid.UUID, name string, updatedAt time.Time) error
 	SoftDelete(ctx context.Context, roomID uuid.UUID, deletedAt time.Time) error
 	SetFrozenAt(ctx context.Context, roomID uuid.UUID, frozenAt *time.Time) error
+	// ListForAdmin は削除されていないルームを管理者向けに一覧（id・名前の部分一致、更新日時降順）。
+	ListForAdmin(ctx context.Context, search string, limit, offset int) ([]entity.Room, int64, error)
 }
 
 type roomRepository struct {
@@ -103,6 +106,32 @@ func (rooms *roomRepository) ListJoinedRooms(ctx context.Context, userID uuid.UU
 		return nil, err
 	}
 	return rows, nil
+}
+
+func (rooms *roomRepository) ListForAdmin(ctx context.Context, search string, limit, offset int) ([]entity.Room, int64, error) {
+	q := rooms.db.WithContext(ctx).Model(&entity.Room{}).Scopes(notDeletedRoom)
+	if s := strings.TrimSpace(search); s != "" {
+		pattern := "%" + s + "%"
+		q = q.Where("CAST(id AS TEXT) ILIKE ? OR COALESCE(name, '') ILIKE ?", pattern, pattern)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var rows []entity.Room
+	if err := q.Order("updated_at DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+	return rows, total, nil
 }
 
 func (rooms *roomRepository) FindDirectRoomByUserPair(ctx context.Context, userA, userB uuid.UUID) (*entity.Room, error) {

@@ -53,6 +53,19 @@ func (h *AuthController) Register(c echo.Context) error {
 	})
 }
 
+// Me は GET /me。ログイン中ユーザーのメール・ID 等（公開フィールドのみ）。
+func (h *AuthController) Me(c echo.Context) error {
+	uid, err := CurrentUserID(c)
+	if err != nil {
+		return err
+	}
+	u, err := h.Auth.CurrentUser(c.Request().Context(), uid)
+	if err != nil {
+		return mapAuthError(c, err)
+	}
+	return c.JSON(http.StatusOK, map[string]userPublicJSON{"user": userToPublicJSON(u)})
+}
+
 func mapAuthError(c echo.Context, err error) error {
 	status, msg := authUsecaseHTTP(err)
 	return c.JSON(status, map[string]string{"error": msg})
@@ -69,6 +82,10 @@ func authUsecaseHTTP(err error) (int, string) {
 		return http.StatusConflict, err.Error()
 	case errors.Is(err, usecase.ErrUserNotFound):
 		return http.StatusNotFound, err.Error()
+	case errors.Is(err, usecase.ErrInvalidUserID):
+		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, usecase.ErrInactiveUser):
+		return http.StatusForbidden, err.Error()
 	default:
 		return http.StatusInternalServerError, "internal server error"
 	}

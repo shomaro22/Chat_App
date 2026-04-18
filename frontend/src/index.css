@@ -146,6 +146,36 @@ code {
   box-shadow: 0 0 0 2px var(--accent-bg);
 }
 
+.password-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.password-input-wrap input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 72px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 6px 12px;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.password-toggle:hover {
+  background: var(--code-bg);
+}
+
 .button {
   width: 100%;
   padding: 10px 16px;

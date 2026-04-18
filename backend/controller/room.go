@@ -1,9 +1,12 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"chat-app/usecase"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -99,9 +102,13 @@ func (h *RoomController) AddRoomMember(c echo.Context) error {
 	if err := c.Bind(&body); err != nil {
 		return jsonError(c, http.StatusBadRequest, "invalid json body")
 	}
-	memberID, err := uuid.Parse(body.MemberID)
+	memberRef := strings.TrimSpace(body.MemberID)
+	if memberRef == "" {
+		return jsonError(c, http.StatusBadRequest, "member_id is required")
+	}
+	memberID, err := h.Rooms.ResolveMemberRef(c.Request().Context(), memberRef)
 	if err != nil {
-		return jsonError(c, http.StatusBadRequest, "invalid member_id")
+		return mapDomainError(c, err)
 	}
 	if err := h.Rooms.AddGroupMember(c.Request().Context(), roomID, actorID, memberID); err != nil {
 		return mapDomainError(c, err)
@@ -175,9 +182,13 @@ func (h *RoomController) CreateDirectRoom(c echo.Context) error {
 	if err := c.Bind(&body); err != nil {
 		return jsonError(c, http.StatusBadRequest, "invalid json body")
 	}
-	targetID, err := uuid.Parse(body.TargetUserID)
+	ref := strings.TrimSpace(body.TargetUserID)
+	if ref == "" {
+		return jsonError(c, http.StatusBadRequest, "target_user_id is required")
+	}
+	targetID, err := h.Rooms.ResolveMemberRef(c.Request().Context(), ref)
 	if err != nil {
-		return jsonError(c, http.StatusBadRequest, "invalid target_user_id")
+		return mapDomainError(c, err)
 	}
 	room, err := h.Rooms.CreateOrGetDirectRoom(c.Request().Context(), userID, targetID)
 	if err != nil {
@@ -198,9 +209,12 @@ func (h *RoomController) CreateGroupRoom(c echo.Context) error {
 	}
 	memberIDs := make([]uuid.UUID, 0, len(body.MemberIDs))
 	for i, s := range body.MemberIDs {
-		id, err := uuid.Parse(s)
+		id, err := h.Rooms.ResolveMemberRef(c.Request().Context(), s)
 		if err != nil {
-			return jsonError(c, http.StatusBadRequest, "invalid member_ids["+strconv.Itoa(i)+"]")
+			if errors.Is(err, usecase.ErrInvalidUserID) {
+				return jsonError(c, http.StatusBadRequest, "invalid member_ids["+strconv.Itoa(i)+"]")
+			}
+			return mapDomainError(c, err)
 		}
 		memberIDs = append(memberIDs, id)
 	}
