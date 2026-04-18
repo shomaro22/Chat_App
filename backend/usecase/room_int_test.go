@@ -143,6 +143,19 @@ func TestRoomUseCase_CreateOrGetDirectRoom_New(t *testing.T) {
 	require.Equal(t, got.ID, again.ID)
 }
 
+func TestRoomUseCase_ResolveMemberRef_EmailAndUUID(t *testing.T) {
+	ctx := context.Background()
+	gormDB := setupUsecaseTestDB(t)
+	u := testUser(t, gormDB, "resolve-ref@example.com")
+	useCase := newRoomUseCase(gormDB)
+	byEmail, err := useCase.ResolveMemberRef(ctx, "resolve-ref@example.com")
+	require.NoError(t, err)
+	require.Equal(t, u.ID, byEmail)
+	byID, err := useCase.ResolveMemberRef(ctx, u.ID.String())
+	require.NoError(t, err)
+	require.Equal(t, u.ID, byID)
+}
+
 func TestRoomUseCase_CreateOrGetDirectRoom_SelfRejected(t *testing.T) {
 	ctx := context.Background()
 	gormDB := setupUsecaseTestDB(t)

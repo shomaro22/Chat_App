@@ -95,6 +95,10 @@ func (a *roomUseCaseAdapter) CreateGroupRoom(ctx context.Context, createdBy uuid
 	return a.inner.CreateGroupRoom(ctx, createdBy, name, memberIDs)
 }
 
+func (a *roomUseCaseAdapter) ResolveMemberRef(ctx context.Context, ref string) (uuid.UUID, error) {
+	return a.inner.ResolveMemberRef(ctx, ref)
+}
+
 func (a *roomUseCaseAdapter) UpdateGroupName(ctx context.Context, roomID, actorID uuid.UUID, name string) error {
 	return a.inner.UpdateGroupName(ctx, roomID, actorID, name)
 }

@@ -103,6 +103,24 @@ func (a *AuthUseCase) CreateTokenForUser(ctx context.Context, userID uuid.UUID) 
 	return a.Tokens.Issue(u.ID, u.Role)
 }
 
+// CurrentUser は JWT 相当のユーザー ID から公開表示用のユーザーを返す。
+func (a *AuthUseCase) CurrentUser(ctx context.Context, userID uuid.UUID) (*entity.User, error) {
+	if userID == uuid.Nil {
+		return nil, ErrInvalidUserID
+	}
+	u, err := a.Users.FindByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if u == nil {
+		return nil, ErrUserNotFound
+	}
+	if !u.Active {
+		return nil, ErrInactiveUser
+	}
+	return u, nil
+}
+
 // ParseToken は Authorization / WS 用トークン文字列からユーザー ID とロールを取り出す。
 func (a *AuthUseCase) ParseToken(raw string) (uuid.UUID, entity.UserRole, error) {
 	uid, role, err := a.Tokens.Parse(raw)

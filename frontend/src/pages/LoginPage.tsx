@@ -1,12 +1,31 @@
-import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { fetchApi } from '../lib/api';
-import { setToken } from '../lib/api';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { connectionFailureHint, fetchApi, getToken, setToken } from '../lib/api';
+
+function loginErrorMessage(status: number, apiError: string): string {
+  if (status === 401 && apiError === 'invalid email or password') {
+    return 'メールアドレスまたはパスワードが正しくありません。';
+  }
+  if (status === 429) {
+    return '試行回数が多すぎます。しばらく待ってから再度お試しください。';
+  }
+  return 'ログインに失敗しました。';
+}
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromPath =
+    (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? '/rooms';
+
+  useEffect(() => {
+    if (getToken()) {
+      navigate('/rooms', { replace: true });
+    }
+  }, [navigate]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,18 +40,22 @@ export function LoginPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error ?? 'ログインに失敗しました');
+        const raw = typeof data.error === 'string' ? data.error : '';
+        setError(loginErrorMessage(res.status, raw));
+        setPassword('');
         return;
       }
       // backend returns { access_token: string }
       if (!data.access_token) {
         setError('不正なレスポンスです');
+        setPassword('');
         return;
       }
       setToken(data.access_token);
-      navigate('/rooms', { replace: true });
-    } catch (e) {
-      setError('サーバーに接続できませんでした');
+      navigate(fromPath.startsWith('/') ? fromPath : '/rooms', { replace: true });
+    } catch {
+      setError(connectionFailureHint());
+      setPassword('');
     } finally {
       setLoading(false);
     }
@@ -56,14 +79,25 @@ export function LoginPage() {
           </div>
           <div className="field">
             <label htmlFor="password">パスワード</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              autoComplete="current-password"
-            />
+            <div className="password-input-wrap">
+              <input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                aria-label={showPassword ? 'パスワードを隠す' : 'パスワードを表示'}
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword((v) => !v)}
+              >
+                {showPassword ? '隠す' : '表示'}
+              </button>
+            </div>
           </div>
           {error && (
             <p style={{ color: 'tomato', fontSize: 14, marginBottom: 8 }}>
@@ -74,6 +108,9 @@ export function LoginPage() {
             {loading ? 'ログイン中...' : 'ログイン'}
           </button>
         </form>
+        <p className="auth-footer-link">
+          <Link to="/register">アカウント作成</Link>
+        </p>
       </div>
     </div>
   );

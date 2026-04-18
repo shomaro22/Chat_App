@@ -15,6 +15,7 @@ type AuthUseCase interface {
 	Login(ctx context.Context, email, password string) (accessToken string, err error)
 	Register(ctx context.Context, name, email, password, bootstrapAdminEmail string) (*entity.User, error)
 	CreateTokenForUser(ctx context.Context, userID uuid.UUID) (accessToken string, err error)
+	CurrentUser(ctx context.Context, userID uuid.UUID) (*entity.User, error)
 }
 
 // RoomUseCase はルーム系ユースケース
@@ -26,6 +27,7 @@ type RoomUseCase interface {
 	RemoveRoomMember(ctx context.Context, roomID, actorID, targetUserID uuid.UUID) error
 	CreateOrGetDirectRoom(ctx context.Context, userID, targetUserID uuid.UUID) (*entity.Room, error)
 	CreateGroupRoom(ctx context.Context, createdBy uuid.UUID, name string, memberIDs []uuid.UUID) (*entity.Room, error)
+	ResolveMemberRef(ctx context.Context, ref string) (uuid.UUID, error)
 	UpdateGroupName(ctx context.Context, roomID, actorID uuid.UUID, name string) error
 	CloseRoom(ctx context.Context, roomID, actorID uuid.UUID) error
 	IsActiveRoomMember(ctx context.Context, roomID, userID uuid.UUID) (bool, error)
@@ -52,6 +54,8 @@ type PresenceJoinedRooms interface {
 
 // AdminUseCase は管理者 API から参照する操作
 type AdminUseCase interface {
+	ListUsers(ctx context.Context, adminID uuid.UUID, search string, limit, offset int) ([]entity.User, int64, error)
+	ListRooms(ctx context.Context, adminID uuid.UUID, search string, limit, offset int) ([]entity.Room, int64, error)
 	SetUserActive(ctx context.Context, adminID, targetUserID uuid.UUID, active bool) error
 	SetRoomFrozen(ctx context.Context, adminID, roomID uuid.UUID, frozen bool) error
 	ForceRemoveMember(ctx context.Context, adminID, roomID, targetUserID uuid.UUID) error

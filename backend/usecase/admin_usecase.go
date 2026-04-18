@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"chat-app/auth"
+	"chat-app/entity"
 	"chat-app/repository"
 
 	"github.com/google/uuid"
@@ -30,6 +31,22 @@ func (a *AdminUseCase) requireAdmin(ctx context.Context, adminID uuid.UUID) erro
 		return ErrForbiddenAdmin
 	}
 	return nil
+}
+
+// ListUsers は管理者向けユーザー一覧（検索・ページング）。
+func (a *AdminUseCase) ListUsers(ctx context.Context, adminID uuid.UUID, search string, limit, offset int) ([]entity.User, int64, error) {
+	if err := a.requireAdmin(ctx, adminID); err != nil {
+		return nil, 0, err
+	}
+	return a.Users.ListForAdmin(ctx, search, limit, offset)
+}
+
+// ListRooms は管理者向けルーム一覧（検索・ページング）。
+func (a *AdminUseCase) ListRooms(ctx context.Context, adminID uuid.UUID, search string, limit, offset int) ([]entity.Room, int64, error) {
+	if err := a.requireAdmin(ctx, adminID); err != nil {
+		return nil, 0, err
+	}
+	return a.Rooms.ListForAdmin(ctx, search, limit, offset)
 }
 
 // SetUserActive はユーザーの有効／無効を切り替える。

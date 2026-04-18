@@ -95,6 +95,39 @@ func (useCase *RoomUseCase) CanSubscribeWebSocket(ctx context.Context, roomID, u
 	return RoomForWebSocketSubscribe(ctx, useCase.Rooms, roomID, userID)
 }
 
+// ResolveMemberRef は UUID 文字列なら ID でユーザーを検索し、それ以外はメール（大小無視）で検索する。
+func (useCase *RoomUseCase) ResolveMemberRef(ctx context.Context, ref string) (uuid.UUID, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return uuid.Nil, ErrInvalidUserID
+	}
+	if id, err := uuid.Parse(ref); err == nil {
+		u, err := useCase.Users.FindByID(ctx, id)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if u == nil {
+			return uuid.Nil, ErrTargetUserNotFound
+		}
+		if !u.Active {
+			return uuid.Nil, ErrInactiveUser
+		}
+		return id, nil
+	}
+	email := strings.ToLower(ref)
+	u, err := useCase.Users.FindByEmail(ctx, email)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if u == nil {
+		return uuid.Nil, ErrTargetUserNotFound
+	}
+	if !u.Active {
+		return uuid.Nil, ErrInactiveUser
+	}
+	return u.ID, nil
+}
+
 // CreateOrGetDirectRoom は1対1 DM を返す。未作成なら作成し、既存ならそれを返す。
 func (useCase *RoomUseCase) CreateOrGetDirectRoom(ctx context.Context, userID, targetUserID uuid.UUID) (*entity.Room, error) {
 	if userID == uuid.Nil || targetUserID == uuid.Nil {

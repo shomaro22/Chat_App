@@ -64,6 +64,9 @@ func New(cfg Config) *echo.Echo {
 	for _, mw := range cfg.RateLimitAfterJWT {
 		api.Use(mw)
 	}
+	if cfg.Auth != nil {
+		api.GET("/me", cfg.Auth.Me)
+	}
 	if cfg.Room != nil {
 		api.GET("/rooms", cfg.Room.ListJoinedRooms)
 		api.GET("/rooms/:id", cfg.Room.GetRoomDetail)
@@ -94,6 +97,8 @@ func New(cfg Config) *echo.Echo {
 		ad := e.Group("/admin")
 		ad.Use(jwt)
 		ad.Use(middleware.RequireAdmin())
+		ad.GET("/users", cfg.Admin.ListUsers)
+		ad.GET("/rooms", cfg.Admin.ListRooms)
 		ad.PATCH("/users/:id/active", cfg.Admin.SetUserActive)
 		ad.PATCH("/rooms/:id/frozen", cfg.Admin.SetRoomFrozen)
 		ad.DELETE("/rooms/:id/members/:userId", cfg.Admin.ForceRemoveMember)

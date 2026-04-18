@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"chat-app/audit"
@@ -36,6 +38,65 @@ func (h *AdminController) notifyPresenceAfterForcedDisconnect(ctx context.Contex
 	pctx, cancel := context.WithTimeout(ctx, adminPresenceNotifyTimeout)
 	defer cancel()
 	BroadcastPresenceUpdated(h.PresenceHub, h.PresenceRooms, pctx, ch.UserID, ch.IsOnline)
+}
+
+func parseAdminListParams(c echo.Context) (limit, offset int) {
+	limit = 50
+	offset = 0
+	if v := c.QueryParam("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if v := c.QueryParam("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	return limit, offset
+}
+
+// ListUsers は GET /admin/users（検索 q、limit、offset）。
+func (h *AdminController) ListUsers(c echo.Context) error {
+	adminID, err := CurrentUserID(c)
+	if err != nil {
+		return err
+	}
+	limit, offset := parseAdminListParams(c)
+	q := strings.TrimSpace(c.QueryParam("q"))
+	rows, total, err := h.Admin.ListUsers(c.Request().Context(), adminID, q, limit, offset)
+	if err != nil {
+		return mapAdminUsecaseError(c, err)
+	}
+	out := make([]userPublicJSON, 0, len(rows))
+	for i := range rows {
+		out = append(out, userToPublicJSON(&rows[i]))
+	}
+	audit.Event("admin.list_users", slog.String("admin_id", adminID.String()), slog.Int("limit", limit), slog.Int("offset", offset))
+	return c.JSON(http.StatusOK, adminUserListResponse{Users: out, Total: total, Limit: limit, Offset: offset})
+}
+
+// ListRooms は GET /admin/rooms（検索 q、limit、offset）。
+func (h *AdminController) ListRooms(c echo.Context) error {
+	adminID, err := CurrentUserID(c)
+	if err != nil {
+		return err
+	}
+	limit, offset := parseAdminListParams(c)
+	q := strings.TrimSpace(c.QueryParam("q"))
+	rows, total, err := h.Admin.ListRooms(c.Request().Context(), adminID, q, limit, offset)
+	if err != nil {
+		return mapAdminUsecaseError(c, err)
+	}
+	out := make([]adminRoomListItemJSON, 0, len(rows))
+	for i := range rows {
+		out = append(out, roomToAdminListItemJSON(&rows[i]))
+	}
+	audit.Event("admin.list_rooms", slog.String("admin_id", adminID.String()), slog.Int("limit", limit), slog.Int("offset", offset))
+	return c.JSON(http.StatusOK, adminRoomListResponse{Rooms: out, Total: total, Limit: limit, Offset: offset})
 }
 
 // SetUserActive は PATCH /admin/users/:id/active。

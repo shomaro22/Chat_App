@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
+	labmw "github.com/labstack/echo/v4/middleware"
 )
 
 func main() {
@@ -116,17 +117,49 @@ func main() {
 	adminCtl := controller.NewAdminController(adminUC, wsHubAdapter{hub}, hub, presenceUC)
 
 	rateUC := usecase.NewRateLimitUseCase(rateLim)
+
+	corsRaw := strings.TrimSpace(os.Getenv("CORS_ALLOW_ORIGINS"))
+	if corsRaw == "" && strings.TrimSpace(os.Getenv("CORS_DISABLE")) != "1" {
+		du := strings.ToLower(databaseURL)
+		if strings.Contains(du, "127.0.0.1") || strings.Contains(du, "localhost") {
+			// Vite は localhost と 127.0.0.1 で別オリジンになる。未設定時のみローカル開発向け既定。
+			corsRaw = "http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:4173,http://localhost:4173"
+			log.Println("cors: CORS_ALLOW_ORIGINS unset; using default Vite origins (5173 dev, 4173 preview)")
+		}
+	}
+	var preAuth []echo.MiddlewareFunc
+	if corsRaw != "" {
+		var origins []string
+		for _, p := range strings.Split(corsRaw, ",") {
+			if s := strings.TrimSpace(p); s != "" {
+				origins = append(origins, s)
+			}
+		}
+		if len(origins) > 0 {
+			log.Printf("cors: AllowOrigins=%v", origins)
+			preAuth = append(preAuth, labmw.CORSWithConfig(labmw.CORSConfig{
+				AllowOrigins: origins,
+				AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
+				AllowMethods: []string{
+					http.MethodGet, http.MethodHead, http.MethodPut, http.MethodPatch,
+					http.MethodPost, http.MethodDelete, http.MethodOptions,
+				},
+			}))
+		}
+	}
+
 	e := router.New(router.Config{
-		Auth:            authCtl,
-		Room:            roomCtl,
-		Messages:        msgCtl,
-		Reads:           readCtl,
-		WS:              wsCtl,
-		Media:           mediaCtl,
-		Admin:           adminCtl,
-		ParseJWT:        authUC.ParseToken,
-		ValidateSession: validateSession,
-		StaticDir:       publicRoot,
+		PreAuthMiddleware: preAuth,
+		Auth:              authCtl,
+		Room:              roomCtl,
+		Messages:          msgCtl,
+		Reads:             readCtl,
+		WS:                wsCtl,
+		Media:             mediaCtl,
+		Admin:             adminCtl,
+		ParseJWT:          authUC.ParseToken,
+		ValidateSession:   validateSession,
+		StaticDir:         publicRoot,
 		RateLimitLogin: []echo.MiddlewareFunc{
 			middleware.LoginRateLimit(rateUC),
 		},
