@@ -18,6 +18,14 @@ var imageExtByMIME = map[string]string{
 }
 
 const maxImageBytes = 10 << 20 // 10 MiB
+const maxFileBytes = 25 << 20  // 25 MiB（画像以外）
+
+var fileExtByMIME = map[string]string{
+	"application/pdf":    ".pdf",
+	"text/plain":         ".txt",
+	"application/zip":    ".zip",
+	"application/x-zip-compressed": ".zip",
+}
 
 // MediaUseCase はアップロード画像を公開ディレクトリへ保存する。
 type MediaUseCase struct {
@@ -52,6 +60,37 @@ func (m *MediaUseCase) SaveUploadedImage(contentType string, r io.Reader) (urlPa
 		return "", err
 	}
 	if n > maxImageBytes {
+		_ = os.Remove(path)
+		return "", ErrUploadTooLarge
+	}
+	return "/static/uploads/" + name, nil
+}
+
+// SaveUploadedFile は画像以外の許可された MIME を保存し URL パスを返す。
+func (m *MediaUseCase) SaveUploadedFile(contentType, originalFilename string, r io.Reader) (urlPath string, err error) {
+	contentType = strings.ToLower(strings.TrimSpace(contentType))
+	ext, ok := fileExtByMIME[contentType]
+	if !ok {
+		return "", ErrUnsupportedMedia
+	}
+	_ = originalFilename // 表示名はクライアントがメッセージに付与
+	dir := filepath.Join(m.PublicRoot, "uploads")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	name := uuid.New().String() + ext
+	path := filepath.Join(dir, name)
+	f, err := os.Create(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	n, err := io.Copy(f, io.LimitReader(r, maxFileBytes+1))
+	if err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	if n > maxFileBytes {
 		_ = os.Remove(path)
 		return "", ErrUploadTooLarge
 	}

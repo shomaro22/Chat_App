@@ -304,6 +304,80 @@
   font-size: 11px;
 }
 
+.chat-input-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reply-draft-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+}
+
+.typing-banner {
+  font-size: 12px;
+  padding: 4px 8px;
+  opacity: 0.75;
+}
+
+.pinned-banner {
+  font-size: 13px;
+  padding: 8px 12px;
+  background: var(--accent-bg);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.message-row-actions {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.message-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.reaction-chip {
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.reaction-chip.mine {
+  border-color: var(--accent);
+}
+
+.message-read-count-badge {
+  margin-left: 8px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  color: var(--text-h);
+  white-space: nowrap;
+}
+
 .chat-input-row {
   display: flex;
   align-items: center;

@@ -11,13 +11,32 @@ export type RoomSummary = {
 export type Message = {
   id: string;
   room_id: string;
+  parent_message_id?: string | null;
   content?: string | null;
   image_url?: string | null;
+  file_url?: string | null;
+  file_name?: string | null;
+  file_content_type?: string | null;
   sender_id?: string;
   sender_name?: string;
   created_at: string;
+  updated_at?: string;
   is_deleted?: boolean;
   deleted_at?: string | null;
+  /** GET .../messages?include_read_count=1 のとき（グループの既読人数） */
+  read_count?: number | null;
+};
+
+export type ReactionRow = {
+  user_id: string;
+  emoji: string;
+  created_at: string;
+};
+
+export type ReactionChip = {
+  emoji: string;
+  count: number;
+  mine: boolean;
 };
 
 export type RoomMemberRow = {
@@ -47,6 +66,9 @@ export type MeUser = {
   email: string;
   name: string;
   role: string;
+  active?: boolean;
+  email_verified?: boolean;
+  avatar_url?: string | null;
 };
 
 export const MESSAGE_PAGE_LIMIT = 50;

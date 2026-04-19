@@ -13,9 +13,17 @@ import (
 // createMessageRequest は POST /rooms/:id/messages（JSON）用。
 // content と image_url はどちらか一方以上必須。併用可（キャプション付き画像）。
 // image_url は POST /media/images のレスポンス url（/static/uploads/... のみ許可）をそのまま渡す。
+type patchMessageRequest struct {
+	Content string `json:"content"`
+}
+
 type createMessageRequest struct {
-	Content  *string `json:"content"`
-	ImageURL *string `json:"image_url"`
+	Content           *string    `json:"content"`
+	ImageURL          *string    `json:"image_url"`
+	FileURL           *string    `json:"file_url"`
+	FileName          *string    `json:"file_name"`
+	FileContentType   *string    `json:"file_content_type"`
+	ParentMessageID   *uuid.UUID `json:"parent_message_id"`
 }
 
 type createMessageResponse struct {
@@ -37,14 +45,19 @@ type listedMessageJSON struct {
 }
 
 type messageJSON struct {
-	ID        uuid.UUID `json:"id"`
-	RoomID    uuid.UUID `json:"room_id"`
-	SenderID  uuid.UUID `json:"sender_id"`
-	Content   *string   `json:"content"`
-	ImageURL  *string   `json:"image_url"`
-	IsDeleted bool      `json:"is_deleted"`
-	DeletedAt *string   `json:"deleted_at,omitempty"`
-	CreatedAt string    `json:"created_at"`
+	ID                uuid.UUID  `json:"id"`
+	RoomID            uuid.UUID  `json:"room_id"`
+	SenderID          uuid.UUID  `json:"sender_id"`
+	ParentMessageID   *uuid.UUID `json:"parent_message_id,omitempty"`
+	Content           *string    `json:"content"`
+	ImageURL          *string    `json:"image_url"`
+	FileURL           *string    `json:"file_url,omitempty"`
+	FileName          *string    `json:"file_name,omitempty"`
+	FileContentType   *string    `json:"file_content_type,omitempty"`
+	IsDeleted         bool       `json:"is_deleted"`
+	DeletedAt         *string    `json:"deleted_at,omitempty"`
+	CreatedAt         string     `json:"created_at"`
+	UpdatedAt         string     `json:"updated_at"`
 }
 
 // messageDeletedWSBroadcast は message_deleted の WS イベント用。
@@ -57,6 +70,14 @@ type messageDeletedWSBroadcast struct {
 
 // messageCreatedWSBroadcast は message_created イベント用 JSON。
 type messageCreatedWSBroadcast struct {
+	Type          string      `json:"type"`
+	SchemaVersion int         `json:"schema_version"`
+	RoomID        uuid.UUID   `json:"room_id"`
+	Message       messageJSON `json:"message"`
+}
+
+// messageUpdatedWSBroadcast は message_updated イベント用。
+type messageUpdatedWSBroadcast struct {
 	Type          string      `json:"type"`
 	SchemaVersion int         `json:"schema_version"`
 	RoomID        uuid.UUID   `json:"room_id"`
@@ -77,15 +98,24 @@ func messageToJSON(m *entity.Message) messageJSON {
 		s := m.DeletedAt.UTC().Format(time.RFC3339Nano)
 		deleted = &s
 	}
+	var parent *uuid.UUID
+	if m.ParentMessageID != nil && *m.ParentMessageID != uuid.Nil {
+		parent = m.ParentMessageID
+	}
 	return messageJSON{
-		ID:        m.ID,
-		RoomID:    m.RoomID,
-		SenderID:  m.SenderID,
-		Content:   copyStrPtr(m.Content),
-		ImageURL:  copyStrPtr(m.ImageURL),
-		IsDeleted: m.IsDeleted || m.DeletedAt != nil,
-		DeletedAt: deleted,
-		CreatedAt: m.CreatedAt.UTC().Format(time.RFC3339Nano),
+		ID:              m.ID,
+		RoomID:          m.RoomID,
+		SenderID:        m.SenderID,
+		ParentMessageID: parent,
+		Content:         copyStrPtr(m.Content),
+		ImageURL:        copyStrPtr(m.ImageURL),
+		FileURL:         copyStrPtr(m.FileURL),
+		FileName:        copyStrPtr(m.FileName),
+		FileContentType: copyStrPtr(m.FileContentType),
+		IsDeleted:       m.IsDeleted || m.DeletedAt != nil,
+		DeletedAt:       deleted,
+		CreatedAt:       m.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt:       m.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
 

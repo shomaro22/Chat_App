@@ -44,4 +44,12 @@ var (
 
 	ErrUnsupportedMedia = errors.New("unsupported image type")
 	ErrUploadTooLarge   = errors.New("upload too large")
+
+	ErrInvalidSearchQuery = errors.New("search query must be at least 2 characters")
+
+	ErrEmailNotVerified = errors.New("email address is not verified")
+	ErrInvalidToken     = errors.New("invalid or expired token")
+	ErrWrongPassword     = errors.New("current password is incorrect")
+
+	ErrInvalidEmoji = errors.New("invalid emoji")
 )

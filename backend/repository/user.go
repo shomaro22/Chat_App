@@ -13,6 +13,7 @@ import (
 
 type UserRepository interface {
 	Create(ctx context.Context, u *entity.User) error
+	Update(ctx context.Context, u *entity.User) error
 	FindByID(ctx context.Context, id uuid.UUID) (*entity.User, error)
 	FindByEmail(ctx context.Context, email string) (*entity.User, error)
 	FindByIDs(ctx context.Context, ids []uuid.UUID) ([]entity.User, error)
@@ -31,6 +32,10 @@ func NewUserRepository(db *gorm.DB) UserRepository {
 
 func (users *userRepository) Create(ctx context.Context, u *entity.User) error {
 	return users.db.WithContext(ctx).Create(u).Error
+}
+
+func (users *userRepository) Update(ctx context.Context, u *entity.User) error {
+	return users.db.WithContext(ctx).Save(u).Error
 }
 
 func (users *userRepository) FindByID(ctx context.Context, id uuid.UUID) (*entity.User, error) {

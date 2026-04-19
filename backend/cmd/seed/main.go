@@ -1,13 +1,14 @@
-// seedtestuser はローカル開発用のテストユーザーを DB に投入する。
+// seed は DB 投入用の CLI（サブコマンドで用途を分ける）。
 //
-//	go run ./cmd/seedtestuser              // 1件（既定 test@example.com）
-//	go run ./cmd/seedtestuser -team       // DM 用に複数アカウント（+ alice, bob）
-//	go run ./cmd/seedtestuser -reset      // 既存ならパスワード等を上書き
-//	go run ./cmd/seedtestuser -team -reset
+//	go run ./cmd/seed e2e                    # Playwright 用 e2e-admin@ / e2e-bob@
+//	go run ./cmd/seed dev                    # ローカル 1 件（既定 test@example.com）
+//	go run ./cmd/seed dev -team              # + alice, bob
+//	go run ./cmd/seed dev -reset             # 既存ならパスワード等を上書き
+//	go run ./cmd/seed dev -team -reset
 //
-// 既定パスワードは全アカウント共通で password123（TEST_USER_PASSWORD で変更可）。
-// 上書き: TEST_USER_EMAIL, TEST_USER_PASSWORD, TEST_USER_NAME
-// 環境変数: SEED_TEST_USER_RESET=1, SEED_TEST_USER_TEAM=1
+// dev の環境変数: DATABASE_URL, TEST_USER_EMAIL, TEST_USER_PASSWORD, TEST_USER_NAME,
+//
+//	SEED_TEST_USER_RESET=1, SEED_TEST_USER_TEAM=1
 package main
 
 import (
@@ -19,23 +20,115 @@ import (
 	"time"
 
 	"chat-app/auth"
-	"chat-app/db"
 	"chat-app/entity"
+	"chat-app/db"
 	"chat-app/repository"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 )
 
+func main() {
+	_ = godotenv.Load()
+	if len(os.Args) < 2 {
+		usage()
+		os.Exit(2)
+	}
+	switch os.Args[1] {
+	case "e2e":
+		runE2ESeed()
+	case "dev":
+		runDevSeed(os.Args[2:])
+	default:
+		usage()
+		os.Exit(2)
+	}
+}
+
+func usage() {
+	fmt.Fprintln(os.Stderr, "usage:")
+	fmt.Fprintln(os.Stderr, "  go run ./cmd/seed e2e              Playwright 用ユーザー")
+	fmt.Fprintln(os.Stderr, "  go run ./cmd/seed dev [-team] [-reset]  ローカル開発用ユーザー")
+}
+
+func runE2ESeed() {
+	const (
+		adminEmail = "e2e-admin@chat.test"
+		bobEmail   = "e2e-bob@chat.test"
+		password   = "E2ePassw0rd!"
+	)
+	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if databaseURL == "" {
+		databaseURL = "postgres://postgres:postgres@127.0.0.1:5432/chatapp?sslmode=disable"
+	}
+	if err := db.Up(databaseURL); err != nil {
+		log.Fatalf("migrate: %v", err)
+	}
+	gormDB, err := db.Open(databaseURL)
+	if err != nil {
+		log.Fatalf("db: %v", err)
+	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		log.Fatalf("hash: %v", err)
+	}
+	now := time.Now().UTC()
+	ctx := context.Background()
+	users := repository.NewUserRepository(gormDB)
+
+	upsert := func(email, name string, role entity.UserRole) {
+		existing, err := users.FindByEmail(ctx, email)
+		if err != nil {
+			log.Fatalf("find %s: %v", email, err)
+		}
+		if existing != nil {
+			existing.Name = name
+			existing.PasswordHash = hash
+			existing.Role = role
+			existing.Active = true
+			existing.UpdatedAt = now
+			if err := users.Update(ctx, existing); err != nil {
+				log.Fatalf("update %s: %v", email, err)
+			}
+			log.Printf("updated: %s (%s)\n", email, role)
+			return
+		}
+		u := &entity.User{
+			ID:           uuid.New(),
+			Name:         name,
+			Email:        email,
+			PasswordHash: hash,
+			Role:         role,
+			Active:       true,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}
+		if err := users.Create(ctx, u); err != nil {
+			log.Fatalf("create %s: %v", email, err)
+		}
+		log.Printf("created: %s (%s)\n", email, role)
+	}
+
+	upsert(adminEmail, "E2E Admin", entity.UserRoleAdmin)
+	upsert(bobEmail, "E2E Bob", entity.UserRoleUser)
+	log.Println("e2eseed: password for both:", password)
+}
+
 type account struct {
 	email string
 	name  string
 }
 
-func parseFlags() (reset, team bool) {
+func parseDevFlags(args []string) (reset, team bool) {
 	reset = strings.TrimSpace(os.Getenv("SEED_TEST_USER_RESET")) == "1"
 	team = strings.TrimSpace(os.Getenv("SEED_TEST_USER_TEAM")) == "1"
-	for _, a := range os.Args[1:] {
+	for _, a := range args {
 		switch a {
 		case "-reset", "--reset":
 			reset = true
@@ -69,14 +162,12 @@ func accountsToSeed(team bool, primaryEmail, primaryName string) []account {
 	return out
 }
 
-func main() {
-	_ = godotenv.Load()
-
-	reset, team := parseFlags()
+func runDevSeed(flagArgs []string) {
+	reset, team := parseDevFlags(flagArgs)
 
 	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	if databaseURL == "" {
-		databaseURL = "postgres://postgres:postgres@localhost:5432/chatapp?sslmode=disable"
+		databaseURL = "postgres://postgres:postgres@127.0.0.1:5432/chatapp?sslmode=disable"
 	}
 
 	primaryEmail := strings.TrimSpace(strings.ToLower(os.Getenv("TEST_USER_EMAIL")))

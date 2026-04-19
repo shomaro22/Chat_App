@@ -123,6 +123,17 @@ func domainErrHTTP(err error) (status int, apiCode string, msg string) {
 	case errors.Is(err, usecase.ErrUploadTooLarge):
 		return http.StatusRequestEntityTooLarge, APICodeUploadTooLarge, err.Error()
 
+	case errors.Is(err, usecase.ErrInvalidSearchQuery):
+		return http.StatusBadRequest, "INVALID_SEARCH_QUERY", err.Error()
+	case errors.Is(err, usecase.ErrInvalidEmoji):
+		return http.StatusBadRequest, "INVALID_EMOJI", err.Error()
+	case errors.Is(err, usecase.ErrInvalidToken):
+		return http.StatusBadRequest, "INVALID_TOKEN", err.Error()
+	case errors.Is(err, usecase.ErrWrongPassword):
+		return http.StatusUnauthorized, "WRONG_PASSWORD", err.Error()
+	case errors.Is(err, usecase.ErrEmailNotVerified):
+		return http.StatusForbidden, "EMAIL_NOT_VERIFIED", err.Error()
+
 	default:
 		return http.StatusInternalServerError, APICodeInternal, "internal server error"
 	}

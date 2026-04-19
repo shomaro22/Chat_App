@@ -9,15 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// AuthUseCase はログイン・登録・登録直後の JWT 発行の抽象（認証 HTTP ハンドラ用）。
-// トークン・パスワードの実体は chat-app/auth。ParseToken はミドルウェアに渡す。
-type AuthUseCase interface {
-	Login(ctx context.Context, email, password string) (accessToken string, err error)
-	Register(ctx context.Context, name, email, password, bootstrapAdminEmail string) (*entity.User, error)
-	CreateTokenForUser(ctx context.Context, userID uuid.UUID) (accessToken string, err error)
-	CurrentUser(ctx context.Context, userID uuid.UUID) (*entity.User, error)
-}
-
 // RoomUseCase はルーム系ユースケース
 type RoomUseCase interface {
 	GetJoinedRooms(ctx context.Context, userID uuid.UUID) ([]entity.Room, error)
@@ -61,7 +52,8 @@ type AdminUseCase interface {
 	ForceRemoveMember(ctx context.Context, adminID, roomID, targetUserID uuid.UUID) error
 }
 
-// MediaUseCase は画像アップロード保存
+// MediaUseCase は画像・ファイルアップロード保存
 type MediaUseCase interface {
 	SaveUploadedImage(contentType string, r io.Reader) (urlPath string, err error)
+	SaveUploadedFile(contentType string, originalFilename string, r io.Reader) (urlPath string, err error)
 }

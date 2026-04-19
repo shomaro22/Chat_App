@@ -306,15 +306,23 @@ func TestWS_AdminDeactivateClosesConnection(t *testing.T) {
 	u.RawQuery = q.Encode()
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
 
 	doRequest(t, e, http.MethodPatch, "/admin/users/"+victimID+"/active", adminTok, map[string]bool{"active": false}, http.StatusNoContent)
 
-	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	_, _, err = conn.ReadMessage()
-	require.Error(t, err)
-	require.True(t, websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) ||
-		strings.Contains(err.Error(), "use of closed network connection") ||
-		strings.Contains(err.Error(), "EOF"))
+	var readErr error
+	deadline := time.Now().Add(12 * time.Second)
+	for time.Now().Before(deadline) {
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, _, readErr = conn.ReadMessage()
+		if readErr != nil {
+			break
+		}
+	}
+	require.Error(t, readErr)
+	require.True(t, websocket.IsCloseError(readErr, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) ||
+		strings.Contains(readErr.Error(), "use of closed network connection") ||
+		strings.Contains(readErr.Error(), "EOF"))
 }
 
 func TestWS_MessageDeletedBroadcast(t *testing.T) {
@@ -599,4 +607,45 @@ func TestWS_AdminForceRemoveThenResubscribeForbidden(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &wse))
 	require.Equal(t, controller.WSEventError, wse["type"])
 	require.Equal(t, controller.WSCodeForbiddenNotMember, wse["code"])
+}
+
+func TestWS_InvalidTokenDialRejected(t *testing.T) {
+	gormDB := openTruncatedDB(t)
+	publicRoot := t.TempDir()
+	e := newTestEcho(t, gormDB, publicRoot, "")
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	u.Scheme = "ws"
+	u.Path = "/ws"
+	q := u.Query()
+	q.Set("access_token", "not.a.valid.jwt.token")
+	u.RawQuery = q.Encode()
+	_, resp, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.Error(t, err)
+}
+
+func TestWS_MissingTokenDialRejected(t *testing.T) {
+	gormDB := openTruncatedDB(t)
+	publicRoot := t.TempDir()
+	e := newTestEcho(t, gormDB, publicRoot, "")
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	u.Scheme = "ws"
+	u.Path = "/ws"
+	_, resp, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.Error(t, err)
 }

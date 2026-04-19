@@ -3,6 +3,7 @@ export { getToken, setToken } from './token';
 export {
   connectionFailureHint,
   resolveApiUrl,
+  resolvePublicAssetUrl,
   fetchApi,
   fetchWithAuth,
   setUnauthorizedHandler,

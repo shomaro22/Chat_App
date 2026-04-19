@@ -51,7 +51,7 @@ func openTruncatedDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	sqlDB, err := gormDB.DB()
 	require.NoError(t, err)
-	_, err = sqlDB.Exec(`TRUNCATE message_reads, messages, room_members, rooms, users RESTART IDENTITY CASCADE`)
+	_, err = sqlDB.Exec(`TRUNCATE user_message_bookmarks, room_pins, message_reactions, auth_tokens, message_reads, messages, room_members, rooms, users RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = sqlDB.Close()
@@ -77,6 +77,10 @@ func (a wsHubAdapter) CloseUserConnections(userID uuid.UUID) controller.HubPrese
 	return controller.HubPresenceChange{Changed: ch.Changed, UserID: ch.UserID, IsOnline: ch.IsOnline}
 }
 
+func (a wsHubAdapter) BroadcastToRoom(roomID uuid.UUID, payload []byte) {
+	a.ConnectionManager.BroadcastToRoom(roomID, payload)
+}
+
 type hubOnlineLookup struct{ *wshub.ConnectionManager }
 
 func (h hubOnlineLookup) IsUserOnline(userID uuid.UUID) bool {
@@ -96,15 +100,21 @@ func newTestEchoWithRateLimiter(t *testing.T, gormDB *gorm.DB, publicRoot, boots
 	roomTx := repository.NewRoomUnitOfWork(gormDB)
 	msgRepo := repository.NewMessageRepository(gormDB)
 	readRepo := repository.NewMessageReadRepository(gormDB)
+	tokRepo := repository.NewAuthTokenRepository(gormDB)
+	reactionRepo := repository.NewMessageReactionRepository(gormDB)
+	pinRepo := repository.NewRoomPinRepository(gormDB)
+	bookmarkRepo := repository.NewUserBookmarkRepository(gormDB)
 
 	tokenSvc := auth.NewTokenService([]byte(jwtSecretE2E), auth.DefaultTokenTTL)
-	authUC := usecase.NewAuthUseCase(users, tokenSvc)
+	authUC := usecase.NewAuthUseCase(users, tokenSvc).WithEmailFlow(tokRepo, usecase.LogMailer{}, false, "http://localhost:5173")
+	profileUC := usecase.NewProfileUseCase(users)
 	roomUC := usecase.NewRoomUseCase(roomTx, users, rooms, members, msgRepo, readRepo, hubOnlineLookup{hub})
 	mediaUC := usecase.NewMediaUseCase(publicRoot)
 	msgUC := usecase.NewMessageUseCase(msgRepo, users, rooms, mediaUC)
 	readUC := usecase.NewMessageReadUseCase(msgRepo, readRepo, rooms, users)
 	presenceUC := usecase.NewPresenceUseCase(rooms)
 	adminUC := usecase.NewAdminUseCase(users, rooms, members)
+	socialUC := usecase.NewSocialUseCase(msgRepo, reactionRepo, pinRepo, bookmarkRepo, rooms)
 	rateUC := usecase.NewRateLimitUseCase(rateRepo)
 
 	validateSession := func(c echo.Context, uid uuid.UUID, _ entity.UserRole) error {
@@ -120,12 +130,13 @@ func newTestEchoWithRateLimiter(t *testing.T, gormDB *gorm.DB, publicRoot, boots
 	}
 
 	cfg := router.Config{
-		Auth:            controller.NewAuthController(authUC, bootstrapAdminEmail),
+		Auth:            controller.NewAuthController(authUC, profileUC, bootstrapAdminEmail),
 		Room:            controller.NewRoomController(controller.NewRoomUseCaseAdapter(roomUC)),
-		Messages:        controller.NewMessageController(controller.NewMessageUseCaseAdapter(msgUC), hub, mediaUC),
+		Messages:        controller.NewMessageController(msgUC, hub, mediaUC),
 		Reads:           controller.NewMessageReadController(controller.NewMessageReadUseCaseAdapter(readUC), hub),
 		WS:              controller.NewWSController(wsHubAdapter{hub}, controller.NewRoomUseCaseAdapter(roomUC), presenceUC),
 		Media:           controller.NewMediaController(mediaUC),
+		Social:          controller.NewSocialController(socialUC),
 		Admin:           controller.NewAdminController(adminUC, wsHubAdapter{hub}, hub, presenceUC),
 		ParseJWT:        authUC.ParseToken,
 		ValidateSession: validateSession,
@@ -619,4 +630,34 @@ func TestHTTP_InvalidImageURLRejected(t *testing.T) {
 	var eb apiErrBody
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &eb))
 	require.Equal(t, "INVALID_IMAGE_URL", eb.Code)
+}
+
+func TestHTTP_DeleteMessage_IdempotentSecondDelete(t *testing.T) {
+	gormDB := openTruncatedDB(t)
+	publicRoot := t.TempDir()
+	e := newTestEcho(t, gormDB, publicRoot, "")
+
+	const pass = "password12"
+	doRequest(t, e, http.MethodPost, "/auth/register", "", map[string]string{
+		"name": "A", "email": "twicedel@e2e.test", "password": pass,
+	}, http.StatusCreated)
+	recB := doRequest(t, e, http.MethodPost, "/auth/register", "", map[string]string{
+		"name": "B", "email": "twicedelbob@e2e.test", "password": pass,
+	}, http.StatusCreated)
+	var bobReg registerAPIResponse
+	require.NoError(t, json.Unmarshal(recB.Body.Bytes(), &bobReg))
+	tok := login(t, e, "twicedel@e2e.test", pass)
+
+	recG := doRequest(t, e, http.MethodPost, "/rooms/groups", tok, map[string]any{
+		"name": "D", "member_ids": []string{bobReg.User.ID.String()},
+	}, http.StatusCreated)
+	var room roomIDBody
+	require.NoError(t, json.Unmarshal(recG.Body.Bytes(), &room))
+
+	recM := doRequest(t, e, http.MethodPost, "/rooms/"+room.ID.String()+"/messages", tok, map[string]any{"content": "delme"}, http.StatusCreated)
+	var cm createMessageAPIResponse
+	require.NoError(t, json.Unmarshal(recM.Body.Bytes(), &cm))
+
+	doRequest(t, e, http.MethodDelete, "/messages/"+cm.Message.ID.String(), tok, nil, http.StatusNoContent)
+	doRequest(t, e, http.MethodDelete, "/messages/"+cm.Message.ID.String(), tok, nil, http.StatusNoContent)
 }

@@ -6,6 +6,12 @@ function loginErrorMessage(status: number, apiError: string): string {
   if (status === 401 && apiError === 'invalid email or password') {
     return 'メールアドレスまたはパスワードが正しくありません。';
   }
+  if (status === 403 && apiError.includes('not verified')) {
+    return 'メールアドレスの確認が完了していません。受信トレイの確認リンクを開いてから再度お試しください。';
+  }
+  if (status === 403 && apiError.toLowerCase().includes('inactive')) {
+    return 'このアカウントは無効化されています。管理者にお問い合わせください。';
+  }
   if (status === 429) {
     return '試行回数が多すぎます。しばらく待ってから再度お試しください。';
   }
@@ -110,6 +116,8 @@ export function LoginPage() {
         </form>
         <p className="auth-footer-link">
           <Link to="/register">アカウント作成</Link>
+          {' · '}
+          <Link to="/forgot-password">パスワードを忘れた場合</Link>
         </p>
       </div>
     </div>

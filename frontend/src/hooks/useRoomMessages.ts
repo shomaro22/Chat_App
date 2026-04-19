@@ -25,7 +25,7 @@ export function useRoomMessages(roomId: string | undefined, reportError: Report)
     reportError(null);
     try {
       const res = await fetchWithAuth(
-        `/rooms/${roomId}/messages?order=desc&limit=${MESSAGE_PAGE_LIMIT}&before_id=${encodeURIComponent(oldestId)}`,
+        `/rooms/${roomId}/messages?order=desc&limit=${MESSAGE_PAGE_LIMIT}&include_read_count=1&before_id=${encodeURIComponent(oldestId)}`,
       );
       if (!res.ok) {
         if (res.status === 401) return false;

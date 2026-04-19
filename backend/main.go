@@ -11,8 +11,8 @@ import (
 
 	"chat-app/auth"
 	"chat-app/controller"
-	"chat-app/db"
 	"chat-app/entity"
+	"chat-app/db"
 	"chat-app/middleware"
 	"chat-app/repository"
 	"chat-app/router"
@@ -86,15 +86,30 @@ func main() {
 	roomTx := repository.NewRoomUnitOfWork(gormDB)
 	msgRepo := repository.NewMessageRepository(gormDB)
 	readRepo := repository.NewMessageReadRepository(gormDB)
+	tokRepo := repository.NewAuthTokenRepository(gormDB)
+	reactionRepo := repository.NewMessageReactionRepository(gormDB)
+	pinRepo := repository.NewRoomPinRepository(gormDB)
+	bookmarkRepo := repository.NewUserBookmarkRepository(gormDB)
 
 	tokenSvc := auth.NewTokenService([]byte(jwtSecret), auth.DefaultTokenTTL)
 	authUC := usecase.NewAuthUseCase(users, tokenSvc)
+	appPublicURL := strings.TrimSpace(os.Getenv("PUBLIC_APP_URL"))
+	if appPublicURL == "" {
+		appPublicURL = "http://localhost:5173"
+	}
+	requireVerify := strings.TrimSpace(os.Getenv("REQUIRE_EMAIL_VERIFY")) == "1"
+	authUC = authUC.WithEmailFlow(tokRepo, usecase.LogMailer{}, requireVerify, appPublicURL)
+	if requireVerify {
+		log.Println("auth: REQUIRE_EMAIL_VERIFY=1 (new users must verify email before login)")
+	}
 	roomUC := usecase.NewRoomUseCase(roomTx, users, rooms, members, msgRepo, readRepo, hubOnlineLookup{hub})
 	mediaUC := usecase.NewMediaUseCase(publicRoot)
 	msgUC := usecase.NewMessageUseCase(msgRepo, users, rooms, mediaUC)
 	readUC := usecase.NewMessageReadUseCase(msgRepo, readRepo, rooms, users)
 	presenceUC := usecase.NewPresenceUseCase(rooms)
 	adminUC := usecase.NewAdminUseCase(users, rooms, members)
+	profileUC := usecase.NewProfileUseCase(users)
+	socialUC := usecase.NewSocialUseCase(msgRepo, reactionRepo, pinRepo, bookmarkRepo, rooms)
 
 	roomCtl := controller.NewRoomController(controller.NewRoomUseCaseAdapter(roomUC))
 	validateSession := func(c echo.Context, uid uuid.UUID, _ entity.UserRole) error {
@@ -109,11 +124,12 @@ func main() {
 		return nil
 	}
 
-	msgCtl := controller.NewMessageController(controller.NewMessageUseCaseAdapter(msgUC), hub, mediaUC)
+	msgCtl := controller.NewMessageController(msgUC, hub, mediaUC)
 	readCtl := controller.NewMessageReadController(controller.NewMessageReadUseCaseAdapter(readUC), hub)
 	wsCtl := controller.NewWSController(wsHubAdapter{hub}, controller.NewRoomUseCaseAdapter(roomUC), presenceUC)
-	authCtl := controller.NewAuthController(authUC, bootstrapAdmin)
+	authCtl := controller.NewAuthController(authUC, profileUC, bootstrapAdmin)
 	mediaCtl := controller.NewMediaController(mediaUC)
+	socialCtl := controller.NewSocialController(socialUC)
 	adminCtl := controller.NewAdminController(adminUC, wsHubAdapter{hub}, hub, presenceUC)
 
 	rateUC := usecase.NewRateLimitUseCase(rateLim)
@@ -156,6 +172,7 @@ func main() {
 		Reads:             readCtl,
 		WS:                wsCtl,
 		Media:             mediaCtl,
+		Social:            socialCtl,
 		Admin:             adminCtl,
 		ParseJWT:          authUC.ParseToken,
 		ValidateSession:   validateSession,
@@ -203,6 +220,10 @@ func (a wsHubAdapter) RemoveConn(connID uuid.UUID) controller.HubPresenceChange 
 func (a wsHubAdapter) CloseUserConnections(userID uuid.UUID) controller.HubPresenceChange {
 	ch := a.ConnectionManager.CloseUserConnections(userID)
 	return controller.HubPresenceChange{Changed: ch.Changed, UserID: ch.UserID, IsOnline: ch.IsOnline}
+}
+
+func (a wsHubAdapter) BroadcastToRoom(roomID uuid.UUID, payload []byte) {
+	a.ConnectionManager.BroadcastToRoom(roomID, payload)
 }
 
 // hubOnlineLookup は WS 接続数からオンライン判定する。

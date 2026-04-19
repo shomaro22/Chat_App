@@ -9,15 +9,16 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// AuthController はログイン・登録。
+// AuthController はログイン・登録・プロフィール・パスワード周り。
 type AuthController struct {
-	Auth                AuthUseCase
+	Auth                *usecase.AuthUseCase
+	Profile             *usecase.ProfileUseCase
 	BootstrapAdminEmail string
 }
 
 // NewAuthController は AuthController を生成する。
-func NewAuthController(auth AuthUseCase, bootstrapAdminEmail string) *AuthController {
-	return &AuthController{Auth: auth, BootstrapAdminEmail: bootstrapAdminEmail}
+func NewAuthController(auth *usecase.AuthUseCase, profile *usecase.ProfileUseCase, bootstrapAdminEmail string) *AuthController {
+	return &AuthController{Auth: auth, Profile: profile, BootstrapAdminEmail: bootstrapAdminEmail}
 }
 
 // Login は POST /auth/login。
@@ -39,21 +40,27 @@ func (h *AuthController) Register(c echo.Context) error {
 	if err := c.Bind(&body); err != nil {
 		return jsonError(c, http.StatusBadRequest, "invalid json body")
 	}
-	u, err := h.Auth.Register(c.Request().Context(), body.Name, body.Email, body.Password, h.BootstrapAdminEmail)
+	res, err := h.Auth.Register(c.Request().Context(), body.Name, body.Email, body.Password, h.BootstrapAdminEmail)
 	if err != nil {
 		return mapAuthError(c, err)
 	}
-	token, err := h.Auth.CreateTokenForUser(c.Request().Context(), u.ID)
+	if res.NeedsEmailVerification {
+		return c.JSON(http.StatusCreated, registerResponse{
+			User:                   userToPublicJSON(res.User),
+			VerificationRequired:   true,
+		})
+	}
+	token, err := h.Auth.CreateTokenForUser(c.Request().Context(), res.User.ID)
 	if err != nil {
 		return mapAuthError(c, err)
 	}
 	return c.JSON(http.StatusCreated, registerResponse{
-		User:        userToPublicJSON(u),
-		AccessToken: token,
+		User:         userToPublicJSON(res.User),
+		AccessToken:  token,
 	})
 }
 
-// Me は GET /me。ログイン中ユーザーのメール・ID 等（公開フィールドのみ）。
+// Me は GET /me。
 func (h *AuthController) Me(c echo.Context) error {
 	uid, err := CurrentUserID(c)
 	if err != nil {
@@ -64,6 +71,79 @@ func (h *AuthController) Me(c echo.Context) error {
 		return mapAuthError(c, err)
 	}
 	return c.JSON(http.StatusOK, map[string]userPublicJSON{"user": userToPublicJSON(u)})
+}
+
+// PatchMe は PATCH /me。
+func (h *AuthController) PatchMe(c echo.Context) error {
+	if h.Profile == nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "profile not configured")
+	}
+	uid, err := CurrentUserID(c)
+	if err != nil {
+		return err
+	}
+	var body patchMeRequest
+	if err := c.Bind(&body); err != nil {
+		return jsonError(c, http.StatusBadRequest, "invalid json body")
+	}
+	u, err := h.Profile.UpdateProfile(c.Request().Context(), uid, usecase.UpdateProfileInput{
+		Name:      body.Name,
+		AvatarURL: body.AvatarURL,
+	})
+	if err != nil {
+		return mapDomainError(c, err)
+	}
+	return c.JSON(http.StatusOK, map[string]userPublicJSON{"user": userToPublicJSON(u)})
+}
+
+// ForgotPassword は POST /auth/forgot-password。
+func (h *AuthController) ForgotPassword(c echo.Context) error {
+	var body forgotPasswordRequest
+	if err := c.Bind(&body); err != nil {
+		return jsonError(c, http.StatusBadRequest, "invalid json body")
+	}
+	_ = h.Auth.ForgotPassword(c.Request().Context(), body.Email)
+	return c.NoContent(http.StatusOK)
+}
+
+// ResetPassword は POST /auth/reset-password。
+func (h *AuthController) ResetPassword(c echo.Context) error {
+	var body resetPasswordRequest
+	if err := c.Bind(&body); err != nil {
+		return jsonError(c, http.StatusBadRequest, "invalid json body")
+	}
+	if err := h.Auth.ResetPassword(c.Request().Context(), body.Token, body.NewPassword); err != nil {
+		return mapAuthError(c, err)
+	}
+	return c.NoContent(http.StatusOK)
+}
+
+// VerifyEmail は POST /auth/verify-email。
+func (h *AuthController) VerifyEmail(c echo.Context) error {
+	var body verifyEmailRequest
+	if err := c.Bind(&body); err != nil {
+		return jsonError(c, http.StatusBadRequest, "invalid json body")
+	}
+	if err := h.Auth.VerifyEmail(c.Request().Context(), body.Token); err != nil {
+		return mapAuthError(c, err)
+	}
+	return c.NoContent(http.StatusOK)
+}
+
+// ChangePassword は POST /auth/change-password（JWT 必須）。
+func (h *AuthController) ChangePassword(c echo.Context) error {
+	uid, err := CurrentUserID(c)
+	if err != nil {
+		return err
+	}
+	var body changePasswordRequest
+	if err := c.Bind(&body); err != nil {
+		return jsonError(c, http.StatusBadRequest, "invalid json body")
+	}
+	if err := h.Auth.ChangePassword(c.Request().Context(), uid, body.CurrentPassword, body.NewPassword); err != nil {
+		return mapAuthError(c, err)
+	}
+	return c.NoContent(http.StatusOK)
 }
 
 func mapAuthError(c echo.Context, err error) error {
@@ -86,6 +166,12 @@ func authUsecaseHTTP(err error) (int, string) {
 		return http.StatusBadRequest, err.Error()
 	case errors.Is(err, usecase.ErrInactiveUser):
 		return http.StatusForbidden, err.Error()
+	case errors.Is(err, usecase.ErrEmailNotVerified):
+		return http.StatusForbidden, err.Error()
+	case errors.Is(err, usecase.ErrInvalidToken):
+		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, usecase.ErrWrongPassword):
+		return http.StatusUnauthorized, err.Error()
 	default:
 		return http.StatusInternalServerError, "internal server error"
 	}
