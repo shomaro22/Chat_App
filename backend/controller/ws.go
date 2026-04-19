@@ -109,6 +109,45 @@ func (w *WSController) Handle(c echo.Context) error {
 			w.writeJSON(connID, wsPongOutbound{Type: WSEventPong, SchemaVersion: WSEventSchemaVersion})
 			continue
 		}
+		if typ == WSClientTyping {
+			roomRaw := strings.TrimSpace(in.RoomID)
+			if roomRaw == "" {
+				w.writeWSError(connID, WSCodeMissingRoomID, "room_id is required", nil)
+				continue
+			}
+			roomID, err := uuid.Parse(roomRaw)
+			if err != nil {
+				w.writeWSError(connID, WSCodeInvalidRoomID, "invalid room_id", nil)
+				continue
+			}
+			active := true
+			if in.IsTyping != nil {
+				active = *in.IsTyping
+			}
+			tctx, tcancel := context.WithTimeout(context.Background(), wsDBOpTimeout)
+			err = w.Rooms.CanSubscribeWebSocket(tctx, roomID, userID)
+			tcancel()
+			if err != nil {
+				roomPtr := &roomID
+				switch {
+				case errors.Is(err, usecase.ErrRoomFrozen):
+					w.writeWSError(connID, WSCodeRoomFrozen, "room is frozen", roomPtr)
+				case errors.Is(err, usecase.ErrNotRoomMember):
+					w.writeWSError(connID, WSCodeForbiddenNotMember, "not an active member of this room", roomPtr)
+				default:
+					w.writeWSError(connID, WSCodeInternal, "internal error", roomPtr)
+				}
+				continue
+			}
+			b, err := json.Marshal(typingOutboundPayload{
+				Type: WSEventTyping, SchemaVersion: WSEventSchemaVersion,
+				RoomID: roomID, UserID: userID, IsTyping: active,
+			})
+			if err == nil {
+				w.Hub.BroadcastToRoom(roomID, b)
+			}
+			continue
+		}
 		roomRaw := strings.TrimSpace(in.RoomID)
 		if roomRaw == "" {
 			w.writeWSError(connID, WSCodeMissingRoomID, "room_id is required", nil)

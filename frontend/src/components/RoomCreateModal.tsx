@@ -60,6 +60,7 @@ export function RoomCreateModal({
         {createKind === 'direct' ? (
           <input
             className="room-create-input"
+            data-testid="room-modal-direct-peer"
             value={directPeerRef}
             onChange={(e) => onDirectPeerRefChange(e.target.value)}
             placeholder="相手のメールアドレスまたはユーザーID"
@@ -85,7 +86,7 @@ export function RoomCreateModal({
           <button className="pill-button" type="button" onClick={onClose}>
             閉じる
           </button>
-          <button className="button" type="button" onClick={onSubmit} disabled={submitDisabled}>
+          <button className="button" type="button" data-testid="room-modal-submit" onClick={onSubmit} disabled={submitDisabled}>
             {creatingRoom ? '作成中...' : '作成'}
           </button>
         </div>

@@ -26,19 +26,27 @@ export function RoomList({ rooms, me, onOpenCreateModal }: Props) {
               {me.id}
             </span>
           </div>
-          {me.role === 'admin' && (
-            <div className="account-admin-link">
-              <Link to="/admin">管理者画面</Link>
-            </div>
-          )}
+          <div className="account-admin-link">
+            <Link to="/settings">設定</Link>
+            {' · '}
+            <Link to="/search">検索</Link>
+            {' · '}
+            <Link to="/bookmarks">ブックマーク</Link>
+            {me.role === 'admin' && (
+              <>
+                {' · '}
+                <Link to="/admin">管理者</Link>
+              </>
+            )}
+          </div>
         </div>
       )}
-      <button className="button create-open-button" type="button" onClick={onOpenCreateModal}>
+      <button className="button create-open-button" type="button" data-testid="sidebar-create-room" onClick={onOpenCreateModal}>
         ルーム作成
       </button>
-      <div className="rooms-scroll">
+      <div className="rooms-scroll" data-testid="sidebar-room-list">
         {rooms.map((r) => (
-          <Link key={r.id} to={`/rooms/${r.id}`} className="room-item">
+          <Link key={r.id} to={`/rooms/${r.id}`} className="room-item" data-testid={`sidebar-room-link-${r.id}`}>
             <div className="room-name">{r.name ?? r.direct_peer_name ?? 'ダイレクトルーム'}</div>
             {r.last_message?.preview && <div className="room-preview">{r.last_message.preview}</div>}
           </Link>

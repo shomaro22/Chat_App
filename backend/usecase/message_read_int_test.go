@@ -4,6 +4,7 @@ package usecase
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -144,4 +145,43 @@ func TestMessageReadUseCase_ForwardThenIdempotent(t *testing.T) {
 	got2, err := repository.NewMessageReadRepository(gormDB).FindByRoomAndUser(ctx, r.ID, u1.ID)
 	require.NoError(t, err)
 	require.Equal(t, m3.ID, *got2.LastReadMessageID)
+}
+
+func TestMessageReadUseCase_ParallelStaleReadsNoRegression(t *testing.T) {
+	ctx := context.Background()
+	gormDB := setupUsecaseTestDB(t)
+	u1, _, r := setupGroupRoomWithMembers(t, gormDB)
+	uc := newMessageReadUseCase(gormDB)
+	msgs := repository.NewMessageRepository(gormDB)
+	a, b, c := "a", "b", "c"
+	t1 := time.Now().UTC()
+	m1 := &entity.Message{ID: uuid.New(), RoomID: r.ID, SenderID: u1.ID, Content: &a, CreatedAt: t1, UpdatedAt: t1}
+	require.NoError(t, msgs.Create(ctx, m1))
+	time.Sleep(5 * time.Millisecond)
+	t2 := time.Now().UTC()
+	m2 := &entity.Message{ID: uuid.New(), RoomID: r.ID, SenderID: u1.ID, Content: &b, CreatedAt: t2, UpdatedAt: t2}
+	require.NoError(t, msgs.Create(ctx, m2))
+	time.Sleep(5 * time.Millisecond)
+	t3 := time.Now().UTC()
+	m3 := &entity.Message{ID: uuid.New(), RoomID: r.ID, SenderID: u1.ID, Content: &c, CreatedAt: t3, UpdatedAt: t3}
+	require.NoError(t, msgs.Create(ctx, m3))
+
+	_, err := uc.MarkAsRead(ctx, u1.ID, r.ID, m3.ID)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = uc.MarkAsRead(ctx, u1.ID, r.ID, m1.ID)
+		}()
+	}
+	wg.Wait()
+
+	got, err := repository.NewMessageReadRepository(gormDB).FindByRoomAndUser(ctx, r.ID, u1.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.NotNil(t, got.LastReadMessageID)
+	require.Equal(t, m3.ID, *got.LastReadMessageID)
 }

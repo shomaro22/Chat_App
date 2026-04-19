@@ -311,10 +311,20 @@ export function AdminPage() {
         </p>
 
         <div className="admin-tabs">
-          <button type="button" className={`pill-button${tab === 'users' ? ' active' : ''}`} onClick={() => setTab('users')}>
+          <button
+            type="button"
+            data-testid="admin-tab-users"
+            className={`pill-button${tab === 'users' ? ' active' : ''}`}
+            onClick={() => setTab('users')}
+          >
             ユーザー管理
           </button>
-          <button type="button" className={`pill-button${tab === 'rooms' ? ' active' : ''}`} onClick={() => setTab('rooms')}>
+          <button
+            type="button"
+            data-testid="admin-tab-rooms"
+            className={`pill-button${tab === 'rooms' ? ' active' : ''}`}
+            onClick={() => setTab('rooms')}
+          >
             ルーム運用
           </button>
         </div>
@@ -387,7 +397,7 @@ export function AdminPage() {
                   </thead>
                   <tbody>
                     {users.map((u) => (
-                      <tr key={u.id}>
+                      <tr key={u.id} data-testid={`admin-user-row-${u.email}`}>
                         <td>
                           <input type="checkbox" checked={Boolean(selectedUserIds[u.id])} onChange={() => toggleUserSelect(u.id)} />
                         </td>
@@ -399,7 +409,13 @@ export function AdminPage() {
                         </td>
                         <td className="admin-td-actions">
                           {u.active ? (
-                            <button type="button" className="pill-button danger-outline" disabled={rowBusy === u.id} onClick={() => void setUserActiveOne(u.id, false)}>
+                            <button
+                              type="button"
+                              className="pill-button danger-outline"
+                              data-testid={`admin-ban-${u.id}`}
+                              disabled={rowBusy === u.id}
+                              onClick={() => void setUserActiveOne(u.id, false)}
+                            >
                               BAN
                             </button>
                           ) : (
@@ -463,7 +479,7 @@ export function AdminPage() {
               {roomLoading ? (
                 <p className="muted">読み込み中…</p>
               ) : (
-                <table className="admin-table">
+                <table className="admin-table" data-testid="admin-room-table">
                   <thead>
                     <tr>
                       <th className="admin-th-radio">選択</th>

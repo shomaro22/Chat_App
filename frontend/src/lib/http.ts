@@ -19,6 +19,14 @@ export function resolveApiUrl(path: string): string {
   return base ? `${base}${p}` : p;
 }
 
+/** `/static/...` を API オリジン付きで解決（Vite と API が別ポートのとき用）。 */
+export function resolvePublicAssetUrl(path: string | null | undefined): string {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  const base = getApiOrigin();
+  return base ? `${base.replace(/\/$/, '')}${path.startsWith('/') ? path : `/${path}`}` : path;
+}
+
 type UnauthorizedHandler = () => void;
 
 let unauthorizedHandler: UnauthorizedHandler | null = null;
