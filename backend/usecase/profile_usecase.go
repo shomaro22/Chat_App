@@ -20,8 +20,7 @@ func NewProfileUseCase(users repository.UserRepository) *ProfileUseCase {
 }
 
 type UpdateProfileInput struct {
-	Name      *string
-	AvatarURL *string
+	Name *string
 }
 
 func (p *ProfileUseCase) UpdateProfile(ctx context.Context, userID uuid.UUID, in UpdateProfileInput) (*entity.User, error) {
@@ -41,17 +40,6 @@ func (p *ProfileUseCase) UpdateProfile(ctx context.Context, userID uuid.UUID, in
 			return nil, ErrInvalidDisplayName
 		}
 		u.Name = n
-	}
-	if in.AvatarURL != nil {
-		v := strings.TrimSpace(*in.AvatarURL)
-		if v == "" {
-			u.AvatarURL = nil
-		} else {
-			if err := validateStaticUploadPath(&v); err != nil {
-				return nil, ErrInvalidImageURL
-			}
-			u.AvatarURL = &v
-		}
 	}
 	u.UpdatedAt = time.Now().UTC()
 	if err := p.Users.Update(ctx, u); err != nil {

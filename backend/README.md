@@ -55,8 +55,8 @@ Postgres が起動した状態で `go run ./cmd/seed dev` を実行する。同�
 
 ```bash
 go run ./cmd/seed dev                    # 1件だけ（既定 test@example.com）
-go run ./cmd/seed dev -team              # DM 用に複数（test + alice + bob）
-go run ./cmd/seed dev -team -reset       # 上記3件すべてパスワード等を上書き
+go run ./cmd/seed dev -team              # 複数（test + alice + bob + admin）
+go run ./cmd/seed dev -team -reset       # 上記4件すべてパスワード等を上書き
 ```
 
 `-team` で作るアカウント（表示名は括弧内）。**パスワードは全員共通**（既定 `password123`、環境変数 `TEST_USER_PASSWORD` で変更可）。
@@ -66,6 +66,7 @@ go run ./cmd/seed dev -team -reset       # 上記3件すべてパスワード等
 | `test@example.com` | Test（`TEST_USER_NAME` で変更可） |
 | `alice@example.com` | Alice |
 | `bob@example.com` | Bob |
+| `admin@example.com` | Admin（role: `admin`） |
 
 1件だけのときは第1行のみ。`TEST_USER_EMAIL` で第1アカウントのメールを変えた場合、`alice` / `bob` はそのまま追加される（メールの重複は除く）。
 

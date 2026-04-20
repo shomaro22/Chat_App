@@ -38,6 +38,7 @@ const (
 	APICodeForbiddenKick           = "FORBIDDEN_KICK"
 	APICodeForbiddenRoomUpdate     = "FORBIDDEN_ROOM_UPDATE"
 	APICodeAlreadyMember           = "ALREADY_MEMBER"
+	APICodeCannotBanAdmin          = "CANNOT_BAN_ADMIN"
 	APICodeUnsupportedMedia        = "UNSUPPORTED_MEDIA"
 	APICodeUploadTooLarge          = "UPLOAD_TOO_LARGE"
 	APICodeInternal                = "INTERNAL_ERROR"
@@ -114,6 +115,8 @@ func domainErrHTTP(err error) (status int, apiCode string, msg string) {
 		return http.StatusForbidden, APICodeForbiddenKick, err.Error()
 	case errors.Is(err, usecase.ErrForbiddenRoomUpdate):
 		return http.StatusForbidden, APICodeForbiddenRoomUpdate, err.Error()
+	case errors.Is(err, usecase.ErrCannotBanAdmin):
+		return http.StatusBadRequest, APICodeCannotBanAdmin, err.Error()
 
 	case errors.Is(err, usecase.ErrAlreadyMember):
 		return http.StatusConflict, APICodeAlreadyMember, err.Error()

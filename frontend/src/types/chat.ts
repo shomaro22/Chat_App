@@ -37,6 +37,7 @@ export type ReactionChip = {
   emoji: string;
   count: number;
   mine: boolean;
+  userNames?: string[];
 };
 
 export type RoomMemberRow = {
@@ -68,7 +69,6 @@ export type MeUser = {
   role: string;
   active?: boolean;
   email_verified?: boolean;
-  avatar_url?: string | null;
 };
 
 export const MESSAGE_PAGE_LIMIT = 50;

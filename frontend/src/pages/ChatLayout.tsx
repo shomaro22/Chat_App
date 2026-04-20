@@ -64,6 +64,12 @@ export function ChatLayout() {
   }, [loadRooms, loadMe]);
 
   useEffect(() => {
+    if (me?.role === 'admin') {
+      navigate('/admin', { replace: true });
+    }
+  }, [me, navigate]);
+
+  useEffect(() => {
     const p = location.pathname.replace(/\/$/, '');
     if (p === '/rooms') {
       void loadRooms();

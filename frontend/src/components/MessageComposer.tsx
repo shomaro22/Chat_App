@@ -79,6 +79,10 @@ export function MessageComposer({
             onTypingActivity?.();
           }}
           onKeyDown={(e) => {
+            // IME 変換中の Enter は送信せず、文字確定だけに使う。
+            if (e.nativeEvent.isComposing || e.keyCode === 229) {
+              return;
+            }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               onSend();

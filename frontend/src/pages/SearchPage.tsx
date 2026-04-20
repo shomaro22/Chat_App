@@ -38,7 +38,7 @@ export function SearchPage() {
 
   return (
     <div className="auth-page">
-      <div className="card admin-card-wide">
+      <div className="card admin-card">
         <h1>メッセージ検索</h1>
         <p className="muted">
           <Link to="/rooms">← チャットに戻る</Link>

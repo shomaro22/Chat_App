@@ -87,8 +87,7 @@ func (h *AuthController) PatchMe(c echo.Context) error {
 		return jsonError(c, http.StatusBadRequest, "invalid json body")
 	}
 	u, err := h.Profile.UpdateProfile(c.Request().Context(), uid, usecase.UpdateProfileInput{
-		Name:      body.Name,
-		AvatarURL: body.AvatarURL,
+		Name: body.Name,
 	})
 	if err != nil {
 		return mapDomainError(c, err)

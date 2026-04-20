@@ -20,15 +20,40 @@ import { useRoomWebSocket, type RoomWsHandlerBag } from '../hooks/useRoomWebSock
 import type { Message, ReaderInfo, ReadStateResponse, ReactionChip, ReactionRow } from '../types/chat';
 import { MESSAGE_PAGE_LIMIT } from '../types/chat';
 
-function aggregateReactions(rows: ReactionRow[], selfId: string | null): ReactionChip[] {
-  const map = new Map<string, { count: number; mine: boolean }>();
+type APIErrorBody = {
+  error?: string;
+  code?: string;
+};
+
+function formatUploadError(status: number, body: APIErrorBody, kind: 'image' | 'file'): string {
+  if (status === 413 || body.code === 'UPLOAD_TOO_LARGE') {
+    return kind === 'image'
+      ? '画像サイズが上限を超えています（最大10MB）。'
+      : 'ファイルサイズが上限を超えています（最大25MB）。';
+  }
+  if (status === 415 || body.code === 'UNSUPPORTED_MEDIA') {
+    return kind === 'image'
+      ? '画像形式が未対応です。jpg / png / gif / webp を選択してください。'
+      : 'ファイル形式が未対応です。pdf / txt / zip を選択してください。';
+  }
+  if (body.error?.trim()) return body.error;
+  return toErrorMessage(status, kind === 'image' ? '画像アップロードに失敗しました。' : 'ファイルのアップロードに失敗しました。');
+}
+
+function aggregateReactions(
+  rows: ReactionRow[],
+  selfId: string | null,
+  resolveUserName: (userId: string) => string,
+): ReactionChip[] {
+  const map = new Map<string, { count: number; mine: boolean; userNames: string[] }>();
   for (const r of rows) {
-    const cur = map.get(r.emoji) ?? { count: 0, mine: false };
+    const cur = map.get(r.emoji) ?? { count: 0, mine: false, userNames: [] };
     cur.count++;
     if (selfId && r.user_id === selfId) cur.mine = true;
+    cur.userNames.push(resolveUserName(r.user_id));
     map.set(r.emoji, cur);
   }
-  return [...map.entries()].map(([emoji, v]) => ({ emoji, count: v.count, mine: v.mine }));
+  return [...map.entries()].map(([emoji, v]) => ({ emoji, count: v.count, mine: v.mine, userNames: v.userNames }));
 }
 
 export function RoomThread() {
@@ -53,6 +78,12 @@ export function RoomThread() {
   const [pin, setPin] = useState<{ message_id: string } | null>(null);
   const [bookmarkedByMessage, setBookmarkedByMessage] = useState<Record<string, boolean>>({});
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
+  const [confirmAction, setConfirmAction] = useState<
+    | null
+    | { type: 'close-room' }
+    | { type: 'leave-room'; userId: string }
+    | { type: 'remove-member'; userId: string }
+  >(null);
   const typingTimeoutsRef = useRef<Record<string, number>>({});
   const typingIdleTimerRef = useRef<number | null>(null);
 
@@ -251,10 +282,10 @@ export function RoomThread() {
       const rows = (data.reactions ?? []) as ReactionRow[];
       setReactionsByMessage((prev) => ({
         ...prev,
-        [messageId]: aggregateReactions(rows, selfUserId),
+        [messageId]: aggregateReactions(rows, selfUserId, (uid) => memberNameById[uid] ?? readUsers[uid] ?? uid.slice(0, 8)),
       }));
     },
-    [id, selfUserId],
+    [id, selfUserId, memberNameById, readUsers],
   );
 
   const refreshReactionsVisible = useCallback(async () => {
@@ -290,7 +321,7 @@ export function RoomThread() {
     },
     onError: (msg) => setError(msg),
     onSchemaMismatch: () => setError('WebSocket のスキーマ不一致です。'),
-    onForbiddenMember: () => setError('このルームの購読権限がありません。'),
+    onForbiddenMember: () => setError('このルームは閲覧できません'),
     onWsTransportError: () => setError('WebSocket 接続に失敗しました。再接続を試行します。'),
     onConnecting: () => setWsStatus('connecting'),
     onOpen: () => {
@@ -630,7 +661,7 @@ export function RoomThread() {
       const uploadData = await uploadRes.json().catch(() => ({}));
       if (!uploadRes.ok || !uploadData.url) {
         if (uploadRes.status === 401) return;
-        setError(toErrorMessage(uploadRes.status, '画像アップロードに失敗しました。'));
+        setError(formatUploadError(uploadRes.status, uploadData as APIErrorBody, 'image'));
         return;
       }
       const sendBody: Record<string, string> = { image_url: uploadData.url };
@@ -650,8 +681,11 @@ export function RoomThread() {
         requestRoomsRefresh();
       } else if (!sendRes.ok) {
         if (sendRes.status === 401) return;
-        setError(toErrorMessage(sendRes.status, '画像メッセージ送信に失敗しました。'));
+        const apiError = (sendData as { error?: string }).error?.trim();
+        setError(apiError || toErrorMessage(sendRes.status, '画像メッセージ送信に失敗しました。'));
       }
+    } catch {
+      setError('通信エラーのため画像を送信できませんでした。接続を確認して再試行してください。');
     } finally {
       setUploading(false);
     }
@@ -671,7 +705,7 @@ export function RoomThread() {
       const uploadData = await uploadRes.json().catch(() => ({}));
       if (!uploadRes.ok || !uploadData.url) {
         if (uploadRes.status === 401) return;
-        setError(toErrorMessage(uploadRes.status, 'ファイルのアップロードに失敗しました。'));
+        setError(formatUploadError(uploadRes.status, uploadData as APIErrorBody, 'file'));
         return;
       }
       const caption = input.trim();
@@ -695,8 +729,11 @@ export function RoomThread() {
         requestRoomsRefresh();
       } else if (!sendRes.ok) {
         if (sendRes.status === 401) return;
-        setError(toErrorMessage(sendRes.status, 'ファイル付きメッセージの送信に失敗しました。'));
+        const apiError = (sendData as { error?: string }).error?.trim();
+        setError(apiError || toErrorMessage(sendRes.status, 'ファイル付きメッセージの送信に失敗しました。'));
       }
+    } catch {
+      setError('通信エラーのためファイルを送信できませんでした。接続を確認して再試行してください。');
     } finally {
       setUploading(false);
     }
@@ -774,7 +811,6 @@ export function RoomThread() {
 
   const closeRoom = async () => {
     if (!id) return;
-    if (!window.confirm('このルームを閉じますか？（メンバー全員がアクセスできなくなります）')) return;
     setRoomActionBusy(true);
     setRoomModalError(null);
     try {
@@ -793,6 +829,39 @@ export function RoomThread() {
     }
   };
 
+  const confirmTitle =
+    confirmAction?.type === 'close-room'
+      ? 'ルームを閉じる'
+      : confirmAction?.type === 'leave-room'
+        ? 'ルームから退出'
+        : confirmAction?.type === 'remove-member'
+          ? 'メンバーを削除'
+          : '';
+
+  const confirmMessage =
+    confirmAction?.type === 'close-room'
+      ? 'このルームを閉じますか？（メンバー全員がアクセスできなくなります）'
+      : confirmAction?.type === 'leave-room'
+        ? 'このルームから退出しますか？'
+        : confirmAction?.type === 'remove-member'
+          ? 'このメンバーを削除しますか？'
+          : '';
+
+  const handleConfirmAction = async () => {
+    if (!confirmAction) return;
+    const action = confirmAction;
+    setConfirmAction(null);
+    if (action.type === 'close-room') {
+      await closeRoom();
+      return;
+    }
+    if (action.type === 'leave-room') {
+      await removeMember(action.userId);
+      return;
+    }
+    await removeMember(action.userId);
+  };
+
   if (!id) {
     return (
       <div className="chat-empty">
@@ -805,6 +874,11 @@ export function RoomThread() {
     <div className="chat-pane">
       <div className="room-toolbar">
         <h2 className="room-toolbar-title">{roomTitle}</h2>
+        {roomMeta?.type && (
+          <span className={`room-kind-badge ${roomMeta.type === 'direct' ? 'is-direct' : 'is-group'}`}>
+            {roomMeta.type === 'direct' ? '1対1' : 'グループ'}
+          </span>
+        )}
         {roomMeta?.is_frozen && <span className="room-frozen-badge">凍結</span>}
         <button
           type="button"
@@ -864,6 +938,8 @@ export function RoomThread() {
         onToggleReaction={handleToggleReaction}
         onReply={setReplyTo}
         onPinMessage={handlePinMessage}
+        onClearPinMessage={() => void handleClearPin()}
+        pinnedMessageId={pin?.message_id ?? null}
         bookmarkedByMessage={bookmarkedByMessage}
         onToggleBookmark={handleToggleBookmark}
         showGroupReadCounts={roomMeta?.type === 'group'}
@@ -986,10 +1062,10 @@ export function RoomThread() {
                             className="pill-button danger-outline"
                             disabled={roomActionBusy}
                             onClick={() => {
-                              if (window.confirm('このルームから退出しますか？')) void removeMember(m.user_id);
+                              setConfirmAction({ type: 'leave-room', userId: m.user_id });
                             }}
                           >
-                            退出
+                            ルームから退出
                           </button>
                         )}
                         {canKick && (
@@ -998,10 +1074,10 @@ export function RoomThread() {
                             className="pill-button danger-outline"
                             disabled={roomActionBusy}
                             onClick={() => {
-                              if (window.confirm('このメンバーをキックしますか？')) void removeMember(m.user_id);
+                              setConfirmAction({ type: 'remove-member', userId: m.user_id });
                             }}
                           >
-                            キック
+                            メンバーを削除
                           </button>
                         )}
                       </span>
@@ -1014,9 +1090,9 @@ export function RoomThread() {
               <div className="room-settings-block">
                 <button
                   type="button"
-                  className="pill-button danger-outline"
+                  className="pill-button danger-outline room-close-button"
                   disabled={roomActionBusy}
-                  onClick={() => void closeRoom()}
+                  onClick={() => setConfirmAction({ type: 'close-room' })}
                 >
                   ルームを閉じる
                 </button>
@@ -1030,6 +1106,32 @@ export function RoomThread() {
                 onClick={() => setShowRoomModal(false)}
               >
                 閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmAction && (
+        <div className="modal-overlay" onClick={() => (!roomActionBusy ? setConfirmAction(null) : null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3>{confirmTitle}</h3>
+            <p>{confirmMessage}</p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="pill-button"
+                disabled={roomActionBusy}
+                onClick={() => setConfirmAction(null)}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                className="pill-button danger-outline"
+                disabled={roomActionBusy}
+                onClick={() => void handleConfirmAction()}
+              >
+                実行
               </button>
             </div>
           </div>
