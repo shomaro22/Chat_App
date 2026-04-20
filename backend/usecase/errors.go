@@ -41,6 +41,7 @@ var (
 	ErrWeakPassword        = errors.New("password must be at least 8 characters")
 	ErrEmailAlreadyInUse   = errors.New("email already in use")
 	ErrForbiddenRoomUpdate = errors.New("forbidden to update this room")
+	ErrCannotBanAdmin      = errors.New("admin account cannot be banned")
 
 	ErrUnsupportedMedia = errors.New("unsupported image type")
 	ErrUploadTooLarge   = errors.New("upload too large")

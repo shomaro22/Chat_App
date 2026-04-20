@@ -2,7 +2,7 @@
 //
 //	go run ./cmd/seed e2e                    # Playwright 用 e2e-admin@ / e2e-bob@
 //	go run ./cmd/seed dev                    # ローカル 1 件（既定 test@example.com）
-//	go run ./cmd/seed dev -team              # + alice, bob
+//	go run ./cmd/seed dev -team              # + alice, bob, admin
 //	go run ./cmd/seed dev -reset             # 既存ならパスワード等を上書き
 //	go run ./cmd/seed dev -team -reset
 //
@@ -92,6 +92,7 @@ func runE2ESeed() {
 			existing.PasswordHash = hash
 			existing.Role = role
 			existing.Active = true
+			existing.EmailVerifiedAt = &now
 			existing.UpdatedAt = now
 			if err := users.Update(ctx, existing); err != nil {
 				log.Fatalf("update %s: %v", email, err)
@@ -106,6 +107,7 @@ func runE2ESeed() {
 			PasswordHash: hash,
 			Role:         role,
 			Active:       true,
+			EmailVerifiedAt: &now,
 			CreatedAt:    now,
 			UpdatedAt:    now,
 		}
@@ -123,6 +125,7 @@ func runE2ESeed() {
 type account struct {
 	email string
 	name  string
+	role  entity.UserRole
 }
 
 func parseDevFlags(args []string) (reset, team bool) {
@@ -141,12 +144,12 @@ func parseDevFlags(args []string) (reset, team bool) {
 
 func accountsToSeed(team bool, primaryEmail, primaryName string) []account {
 	primaryEmail = strings.ToLower(strings.TrimSpace(primaryEmail))
-	out := []account{{email: primaryEmail, name: primaryName}}
+	out := []account{{email: primaryEmail, name: primaryName, role: entity.UserRoleUser}}
 	if !team {
 		return out
 	}
 	seen := map[string]struct{}{primaryEmail: {}}
-	add := func(email, name string) {
+	add := func(email, name string, role entity.UserRole) {
 		e := strings.ToLower(strings.TrimSpace(email))
 		if e == "" {
 			return
@@ -155,10 +158,11 @@ func accountsToSeed(team bool, primaryEmail, primaryName string) []account {
 			return
 		}
 		seen[e] = struct{}{}
-		out = append(out, account{email: e, name: name})
+		out = append(out, account{email: e, name: name, role: role})
 	}
-	add("alice@example.com", "Alice")
-	add("bob@example.com", "Bob")
+	add("alice@example.com", "Alice", entity.UserRoleUser)
+	add("bob@example.com", "Bob", entity.UserRoleUser)
+	add("admin@example.com", "Admin", entity.UserRoleAdmin)
 	return out
 }
 
@@ -224,7 +228,9 @@ func runDevSeed(flagArgs []string) {
 			res := gormDB.WithContext(ctx).Model(&entity.User{}).Where("email = ?", acc.email).Updates(map[string]any{
 				"password_hash": hash,
 				"name":          acc.name,
+				"role":          acc.role,
 				"active":        true,
+				"email_verified_at": now,
 				"updated_at":    now,
 			})
 			if res.Error != nil {
@@ -243,8 +249,9 @@ func runDevSeed(flagArgs []string) {
 			Name:         acc.name,
 			Email:        acc.email,
 			PasswordHash: hash,
-			Role:         entity.UserRoleUser,
+			Role:         acc.role,
 			Active:       true,
+			EmailVerifiedAt: &now,
 			CreatedAt:    now,
 			UpdatedAt:    now,
 		}

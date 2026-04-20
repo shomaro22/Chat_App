@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import { useState, type RefObject } from 'react';
 import { resolvePublicAssetUrl } from '../lib/api';
 import type { Message, ReaderInfo, ReactionChip } from '../types/chat';
 
@@ -19,6 +19,8 @@ type Props = {
   onToggleReaction?: (messageId: string, emoji: string) => void;
   onReply?: (m: Message) => void;
   onPinMessage?: (messageId: string) => void;
+  onClearPinMessage?: () => void;
+  pinnedMessageId?: string | null;
   bookmarkedByMessage?: Record<string, boolean>;
   onToggleBookmark?: (messageId: string) => void;
   /** グループルームで API の read_count をメッセージごとに表示 */
@@ -26,6 +28,12 @@ type Props = {
 };
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂'];
+
+function toDisplayId(v?: string | null): string {
+  const s = (v ?? '').trim();
+  if (!s) return '不明';
+  return s.length > 12 ? `${s.slice(0, 8)}…` : s;
+}
 
 export function MessageList({
   messageListRef,
@@ -44,10 +52,15 @@ export function MessageList({
   onToggleReaction,
   onReply,
   onPinMessage,
+  onClearPinMessage,
+  pinnedMessageId,
   bookmarkedByMessage,
   onToggleBookmark,
   showGroupReadCounts,
 }: Props) {
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState('');
+
   const byId: Record<string, Message> = {};
   messages.forEach((m) => {
     byId[m.id] = m;
@@ -69,18 +82,24 @@ export function MessageList({
           )}
         </div>
       )}
-      {messages.map((m) => (
-        <div key={m.id} className={`message-row${m.is_deleted ? ' message-row-deleted' : ''}`} data-message-id={m.id}>
+      {messages.map((m) => {
+        const isSelfMessage = Boolean(selfUserId && m.sender_id === selfUserId);
+        return (
+        <div
+          key={m.id}
+          className={`message-row${isSelfMessage ? ' message-row-self' : ' message-row-other'}${m.is_deleted ? ' message-row-deleted' : ''}${m.id === pinnedMessageId ? ' message-row-pinned' : ''}`}
+          data-message-id={m.id}
+        >
           <div className="message-meta">
-            <span className="sender">{m.sender_name ?? m.sender_id ?? '不明'}</span>
+            <span className="sender">{m.sender_name?.trim() || toDisplayId(m.sender_id)}</span>
             <span className="time">{new Date(m.created_at).toLocaleTimeString()}</span>
+            {m.id === pinnedMessageId && <span className="message-pin-badge">ピン留め中</span>}
             {showGroupReadCounts && !m.is_deleted && m.read_count != null && (
               <span className="message-read-count-badge" title="このメッセージまで既読のメンバー数（送信者除く集計はサーバー定義）">
                 既読 {m.read_count} 人
               </span>
             )}
-            {selfUserId &&
-              m.sender_id === selfUserId &&
+            {isSelfMessage &&
               !m.is_deleted &&
               (deletingId === m.id ? (
                 <span className="message-delete-status">削除中…</span>
@@ -92,8 +111,8 @@ export function MessageList({
                       className="message-delete-btn"
                       disabled={deletingId !== null}
                       onClick={() => {
-                        const next = window.prompt('新しい本文', m.content ?? '');
-                        if (next != null && next.trim()) void onEditMessage(m.id, next);
+                        setEditingMessageId(m.id);
+                        setEditingDraft(m.content ?? '');
                       }}
                     >
                       編集
@@ -122,6 +141,60 @@ export function MessageList({
                   {(byId[m.parent_message_id]?.content?.length ?? 0) > 60 ? '…' : ''}
                 </div>
               )}
+              {editingMessageId === m.id ? (
+                <div className="message-edit-inline">
+                  <input
+                    className="message-edit-input"
+                    value={editingDraft}
+                    onChange={(e) => setEditingDraft(e.target.value)}
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.nativeEvent.isComposing || e.keyCode === 229) {
+                        return;
+                      }
+                      if (e.key === 'Escape') {
+                        setEditingMessageId(null);
+                        setEditingDraft('');
+                        return;
+                      }
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        const next = editingDraft.trim();
+                        if (!next || !onEditMessage) return;
+                        void onEditMessage(m.id, next);
+                        setEditingMessageId(null);
+                        setEditingDraft('');
+                      }
+                    }}
+                  />
+                  <div className="message-edit-actions">
+                    <button
+                      type="button"
+                      className="pill-button"
+                      onClick={() => {
+                        setEditingMessageId(null);
+                        setEditingDraft('');
+                      }}
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      type="button"
+                      className="pill-button reply-action-button"
+                      disabled={!editingDraft.trim() || !onEditMessage}
+                      onClick={() => {
+                        const next = editingDraft.trim();
+                        if (!next || !onEditMessage) return;
+                        void onEditMessage(m.id, next);
+                        setEditingMessageId(null);
+                        setEditingDraft('');
+                      }}
+                    >
+                      保存
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               {m.content && <div className="bubble">{m.content}</div>}
               {m.image_url && (
                 <div className="bubble image">
@@ -138,38 +211,71 @@ export function MessageList({
               {reactionsByMessage?.[m.id] && reactionsByMessage[m.id].length > 0 && (
                 <div className="message-reactions">
                   {reactionsByMessage[m.id].map((c) => (
-                    <button
-                      key={c.emoji}
-                      type="button"
-                      className={`reaction-chip${c.mine ? ' mine' : ''}`}
-                      disabled={!onToggleReaction}
-                      onClick={() => onToggleReaction?.(m.id, c.emoji)}
-                      title={c.mine ? 'クリックで解除' : 'クリックで追加 / 自分の分は解除'}
-                    >
-                      {c.emoji} {c.count}
-                    </button>
+                    (() => {
+                      const names = c.userNames ?? [];
+                      const firstTwo = names.slice(0, 2).join(', ');
+                      const remain = names.length - 2;
+                      const whoText = names.length === 0 ? '' : remain > 0 ? `${firstTwo} +${remain}` : firstTwo;
+                      const title = names.length
+                        ? `${c.emoji}: ${names.join(', ')}`
+                        : c.mine
+                          ? 'クリックで解除'
+                          : 'クリックで追加 / 自分の分は解除';
+                      return (
+                        <button
+                          key={c.emoji}
+                          type="button"
+                          className={`reaction-chip${c.mine ? ' mine' : ''}`}
+                          disabled={!onToggleReaction}
+                          onClick={() => onToggleReaction?.(m.id, c.emoji)}
+                          title={title}
+                        >
+                          {c.emoji} {c.count}
+                          {whoText ? ` (${whoText})` : ''}
+                        </button>
+                      );
+                    })()
                   ))}
                 </div>
               )}
               <div className="message-row-actions">
                 {onReply && (
-                  <button type="button" className="pill-button" onClick={() => onReply(m)}>
+                  <button type="button" className="pill-button reply-action-button" onClick={() => onReply(m)}>
                     返信
                   </button>
                 )}
                 {onPinMessage && (
-                  <button type="button" className="pill-button" onClick={() => onPinMessage(m.id)}>
-                    ピン
+                  <button
+                    type="button"
+                    className={`pill-button pin-action-button${m.id === pinnedMessageId ? ' is-pinned' : ''}`}
+                    onClick={() => {
+                      if (m.id === pinnedMessageId) {
+                        onClearPinMessage?.();
+                        return;
+                      }
+                      onPinMessage(m.id);
+                    }}
+                  >
+                    {m.id === pinnedMessageId ? 'ピン留め中' : 'ピン'}
                   </button>
                 )}
                 {onToggleBookmark && (
-                  <button type="button" className="pill-button" onClick={() => onToggleBookmark(m.id)}>
+                  <button
+                    type="button"
+                    className={`pill-button bookmark-action-button${bookmarkedByMessage?.[m.id] ? ' is-bookmarked' : ''}`}
+                    onClick={() => onToggleBookmark(m.id)}
+                  >
                     {bookmarkedByMessage?.[m.id] ? 'ブックマーク解除' : 'ブックマーク'}
                   </button>
                 )}
                 {onToggleReaction &&
                   QUICK_EMOJIS.map((em) => (
-                    <button key={em} type="button" className="pill-button" onClick={() => onToggleReaction(m.id, em)}>
+                    <button
+                      key={em}
+                      type="button"
+                      className="pill-button emoji-action-button"
+                      onClick={() => onToggleReaction(m.id, em)}
+                    >
                       {em}
                     </button>
                   ))}
@@ -202,7 +308,8 @@ export function MessageList({
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

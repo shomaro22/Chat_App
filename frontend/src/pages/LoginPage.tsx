@@ -10,7 +10,7 @@ function loginErrorMessage(status: number, apiError: string): string {
     return 'メールアドレスの確認が完了していません。受信トレイの確認リンクを開いてから再度お試しください。';
   }
   if (status === 403 && apiError.toLowerCase().includes('inactive')) {
-    return 'このアカウントは無効化されています。管理者にお問い合わせください。';
+    return 'この操作は許可されていません。管理者へご確認ください。';
   }
   if (status === 429) {
     return '試行回数が多すぎます。しばらく待ってから再度お試しください。';

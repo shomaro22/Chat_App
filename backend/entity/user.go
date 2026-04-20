@@ -13,7 +13,6 @@ type User struct {
 	PasswordHash      string     `gorm:"column:password_hash;not null"`
 	Role              UserRole   `gorm:"not null"`
 	Active            bool       `gorm:"not null"`
-	AvatarURL         *string    `gorm:"column:avatar_url"`
 	EmailVerifiedAt   *time.Time `gorm:"column:email_verified_at"`
 	CreatedAt         time.Time  `gorm:"not null"`
 	UpdatedAt         time.Time  `gorm:"not null"`

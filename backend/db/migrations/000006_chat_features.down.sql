@@ -10,4 +10,3 @@ ALTER TABLE messages DROP COLUMN IF EXISTS file_url;
 ALTER TABLE messages DROP COLUMN IF EXISTS parent_message_id;
 
 ALTER TABLE users DROP COLUMN IF EXISTS email_verified_at;
-ALTER TABLE users DROP COLUMN IF EXISTS avatar_url;

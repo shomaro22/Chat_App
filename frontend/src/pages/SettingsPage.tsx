@@ -7,9 +7,9 @@ import type { MeUser } from '../types/chat';
 export function SettingsPage() {
   const [me, setMe] = useState<MeUser | null>(null);
   const [name, setName] = useState('');
-  const [avatarUrl, setAvatarUrl] = useState('');
   const [currentPw, setCurrentPw] = useState('');
   const [newPw, setNewPw] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -23,7 +23,6 @@ export function SettingsPage() {
       if (u) {
         setMe(u);
         setName(u.name);
-        setAvatarUrl(u.avatar_url ?? '');
       }
     })();
   }, []);
@@ -32,9 +31,8 @@ export function SettingsPage() {
     e.preventDefault();
     setErr(null);
     setMsg(null);
-    const body: { name?: string; avatar_url?: string } = {};
+    const body: { name?: string } = {};
     if (name.trim()) body.name = name.trim();
-    if (avatarUrl.trim()) body.avatar_url = avatarUrl.trim();
     const res = await fetchWithAuth('/me', { method: 'PATCH', body: JSON.stringify(body) });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -64,9 +62,9 @@ export function SettingsPage() {
 
   return (
     <div className="auth-page">
-      <div className="card admin-card-wide">
+      <div className="card admin-card">
         <h1>設定</h1>
-        <p className="muted">
+        <p className="muted settings-back-link">
           <Link to="/rooms">← チャットに戻る</Link>
         </p>
         {me && (
@@ -81,10 +79,6 @@ export function SettingsPage() {
           <div className="field">
             <label htmlFor="set-name">表示名</label>
             <input id="set-name" value={name} onChange={(e) => setName(e.target.value)} required />
-          </div>
-          <div className="field">
-            <label htmlFor="set-avatar">アバター URL（/static/uploads/...）</label>
-            <input id="set-avatar" value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} />
           </div>
           <button className="button" type="submit">
             保存
@@ -104,36 +98,29 @@ export function SettingsPage() {
           </div>
           <div className="field">
             <label htmlFor="new-pw">新しいパスワード（8文字以上）</label>
-            <input
-              id="new-pw"
-              type="password"
-              value={newPw}
-              onChange={(e) => setNewPw(e.target.value)}
-              autoComplete="new-password"
-            />
+            <div className="password-input-wrap">
+              <input
+                id="new-pw"
+                type={showNewPassword ? 'text' : 'password'}
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                aria-label={showNewPassword ? '新しいパスワードを隠す' : '新しいパスワードを表示'}
+                aria-pressed={showNewPassword}
+                onClick={() => setShowNewPassword((v) => !v)}
+              >
+                {showNewPassword ? '隠す' : '表示'}
+              </button>
+            </div>
           </div>
           <button className="button" type="submit">
             パスワードを変更
           </button>
         </form>
-        {import.meta.env.DEV && (
-          <section style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
-            <h2>接続・プレゼンス（開発用）</h2>
-            <p className="muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
-              同一アカウントで複数タブを開くと WebSocket が複数張られ、相手のルーム画面のメンバー一覧ではオンラインが維持されます。片方のタブだけ閉じても、残りが1つあればオンラインのままです。すべて閉じるとオフラインになります。
-            </p>
-            <button
-              type="button"
-              className="pill-button"
-              data-testid="dev-open-rooms-tab"
-              onClick={() => {
-                window.open('/rooms', '_blank', 'noopener,noreferrer');
-              }}
-            >
-              同じログインでルームを別タブで開く
-            </button>
-          </section>
-        )}
       </div>
     </div>
   );

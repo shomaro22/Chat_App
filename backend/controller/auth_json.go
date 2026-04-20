@@ -30,7 +30,6 @@ type userPublicJSON struct {
 	Role            string    `json:"role"`
 	Active          bool      `json:"active"`
 	EmailVerified   bool      `json:"email_verified"`
-	AvatarURL       *string   `json:"avatar_url,omitempty"`
 	CreatedAt       string    `json:"created_at"`
 	UpdatedAt       string    `json:"updated_at"`
 }
@@ -42,8 +41,7 @@ type registerResponse struct {
 }
 
 type patchMeRequest struct {
-	Name      *string `json:"name"`
-	AvatarURL *string `json:"avatar_url"`
+	Name *string `json:"name"`
 }
 
 type forgotPasswordRequest struct {
@@ -72,7 +70,6 @@ func userToPublicJSON(u *entity.User) userPublicJSON {
 		Role:            string(u.Role),
 		Active:          u.Active,
 		EmailVerified:   u.EmailVerifiedAt != nil,
-		AvatarURL:       copyStrPtr(u.AvatarURL),
 		CreatedAt:       u.CreatedAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt:       u.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
