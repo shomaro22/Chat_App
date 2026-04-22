@@ -20,6 +20,7 @@ test.describe('管理者: ユーザー一覧 → BAN → 再ログイン不可�
     const bobRow = page.locator('tr').filter({ hasText: E2E_BOB.email }).first();
     await expect(bobRow).toBeVisible({ timeout: 20_000 });
     await bobRow.getByRole('button', { name: 'BAN' }).click();
+    await page.getByRole('button', { name: '実行' }).click();
 
     await bobCtx.close();
 

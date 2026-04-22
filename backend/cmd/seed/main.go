@@ -119,6 +119,16 @@ func runE2ESeed() {
 
 	upsert(adminEmail, "E2E Admin", entity.UserRoleAdmin)
 	upsert(bobEmail, "E2E Bob", entity.UserRoleUser)
+
+	// Keep E2E accounts unblocked in both directions to avoid state leakage between runs.
+	if err := gormDB.WithContext(ctx).Exec(
+		`DELETE FROM user_blocks
+		  WHERE (blocker_id = (SELECT id FROM users WHERE email = ?) AND blocked_id = (SELECT id FROM users WHERE email = ?))
+		     OR (blocker_id = (SELECT id FROM users WHERE email = ?) AND blocked_id = (SELECT id FROM users WHERE email = ?))`,
+		adminEmail, bobEmail, bobEmail, adminEmail,
+	).Error; err != nil {
+		log.Fatalf("reset e2e block state: %v", err)
+	}
 	log.Println("e2eseed: password for both:", password)
 }
 

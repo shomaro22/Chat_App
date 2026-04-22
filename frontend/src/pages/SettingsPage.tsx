@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchWithAuth, getToken } from '../lib/api';
 import { toErrorMessage } from '../chat/errors';
+import { ErrorNotice } from '../components/ErrorNotice';
 import type { MeUser } from '../types/chat';
 
 export function SettingsPage() {
@@ -12,20 +13,31 @@ export function SettingsPage() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [reloadSeq, setReloadSeq] = useState(0);
 
   useEffect(() => {
     if (!getToken()) return;
+    let alive = true;
     void (async () => {
       const res = await fetchWithAuth('/me');
-      if (!res.ok) return;
+      if (!alive) return;
+      if (!res.ok) {
+        setLoadErr(toErrorMessage(res.status, 'ユーザー情報の取得に失敗しました。'));
+        return;
+      }
       const data = await res.json().catch(() => ({}));
       const u = data.user as MeUser | undefined;
       if (u) {
+        setLoadErr(null);
         setMe(u);
         setName(u.name);
       }
     })();
-  }, []);
+    return () => {
+      alive = false;
+    };
+  }, [reloadSeq]);
 
   const saveProfile = async (e: FormEvent) => {
     e.preventDefault();
@@ -64,7 +76,7 @@ export function SettingsPage() {
     <div className="auth-page">
       <div className="card admin-card">
         <h1>設定</h1>
-        <p className="muted settings-back-link">
+        <p className="back-link-emphasis">
           <Link to="/rooms">← チャットに戻る</Link>
         </p>
         {me && (
@@ -72,6 +84,7 @@ export function SettingsPage() {
             {me.email} {me.email_verified === false && <span>（メール未確認）</span>}
           </p>
         )}
+        {loadErr && <ErrorNotice message={loadErr} onRetry={() => setReloadSeq((v) => v + 1)} />}
         {err && <p className="error-text">{err}</p>}
         {msg && <p style={{ color: 'seagreen' }}>{msg}</p>}
         <form onSubmit={saveProfile}>

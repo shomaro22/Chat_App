@@ -22,10 +22,12 @@ type MessageRepository interface {
 	LatestPerRoom(ctx context.Context, roomIDs []uuid.UUID) ([]entity.Message, error)
 	// CountUnreadForViewer は lastRead より後の、自分以外が送った未削除メッセージ数。
 	CountUnreadForViewer(ctx context.Context, roomID, viewerID uuid.UUID, lastReadMessageID *uuid.UUID) (int64, error)
+	CountUnreadForViewerExcludingSenders(ctx context.Context, roomID, viewerID uuid.UUID, lastReadMessageID *uuid.UUID, excludedSenderIDs []uuid.UUID) (int64, error)
 	// CountReadersAtOrAfterMessage は read カーソルが当該メッセージ以上のアクティブメンバー数（送信者除外）。
 	CountReadersAtOrAfterMessage(ctx context.Context, roomID, messageID, excludeUserID uuid.UUID) (int64, error)
 	// SearchInJoinedRooms はユーザーが参加中のルームに限定し、本文・ファイル名を部分一致検索する。
 	SearchInJoinedRooms(ctx context.Context, userID uuid.UUID, query string, limit int) ([]entity.Message, error)
+	FindLatestVisibleInRoom(ctx context.Context, roomID uuid.UUID, excludedSenderIDs []uuid.UUID) (*entity.Message, error)
 }
 
 type messageRepository struct {
@@ -105,6 +107,24 @@ func (messages *messageRepository) CountUnreadForViewer(ctx context.Context, roo
 	return n, nil
 }
 
+func (messages *messageRepository) CountUnreadForViewerExcludingSenders(ctx context.Context, roomID, viewerID uuid.UUID, lastReadMessageID *uuid.UUID, excludedSenderIDs []uuid.UUID) (int64, error) {
+	q := messages.db.WithContext(ctx).Model(&entity.Message{}).
+		Where("room_id = ?", roomID).
+		Where("sender_id <> ?", viewerID).
+		Where("is_deleted = ?", false)
+	if len(excludedSenderIDs) > 0 {
+		q = q.Where("sender_id NOT IN ?", excludedSenderIDs)
+	}
+	if lastReadMessageID != nil {
+		q = q.Where("(created_at, id) > (SELECT created_at, id FROM messages WHERE id = ? AND room_id = ?)", *lastReadMessageID, roomID)
+	}
+	var n int64
+	if err := q.Count(&n).Error; err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 func (messages *messageRepository) CountReadersAtOrAfterMessage(ctx context.Context, roomID, messageID, excludeUserID uuid.UUID) (int64, error) {
 	var n int64
 	err := messages.db.WithContext(ctx).Raw(`
@@ -171,4 +191,21 @@ func (messages *messageRepository) SearchInJoinedRooms(ctx context.Context, user
 		return nil, err
 	}
 	return rows, nil
+}
+
+func (messages *messageRepository) FindLatestVisibleInRoom(ctx context.Context, roomID uuid.UUID, excludedSenderIDs []uuid.UUID) (*entity.Message, error) {
+	var row entity.Message
+	q := messages.db.WithContext(ctx).
+		Where("room_id = ?", roomID).
+		Order("created_at DESC, id DESC")
+	if len(excludedSenderIDs) > 0 {
+		q = q.Where("sender_id NOT IN ?", excludedSenderIDs)
+	}
+	if err := q.First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &row, nil
 }

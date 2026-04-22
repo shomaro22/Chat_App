@@ -24,7 +24,7 @@
 }
 
 .account-self {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.45;
   padding: 10px 10px;
   border-radius: 12px;
@@ -36,12 +36,12 @@
   font-weight: 600;
   color: var(--text-h);
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .account-self-row {
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 84px 1fr;
   gap: 6px 8px;
   align-items: start;
   margin-bottom: 6px;
@@ -60,7 +60,7 @@
   color: var(--text-h);
   word-break: break-all;
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .create-room-box {
@@ -235,6 +235,22 @@
   border-radius: 12px;
   background: #fffde7;
   color: #1f2937;
+}
+
+.message-row-highlighted {
+  animation: msg-highlight-fade 2.2s ease-out;
+  border-radius: 12px;
+}
+
+@keyframes msg-highlight-fade {
+  0% {
+    box-shadow: 0 0 0 2px #f9a825;
+    background: #fff8e1;
+  }
+  100% {
+    box-shadow: none;
+    background: transparent;
+  }
 }
 
 .message-pin-badge {
@@ -468,6 +484,22 @@
   color: var(--text-h);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+.back-link-emphasis {
+  margin: 6px 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.back-link-emphasis a {
+  color: var(--accent, #2563eb);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.back-link-emphasis a:hover {
+  filter: brightness(1.1);
 }
 
 .chat-input-block {

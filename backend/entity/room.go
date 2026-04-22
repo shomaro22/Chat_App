@@ -18,5 +18,3 @@ type Room struct {
 	DeletedAt     *time.Time `gorm:"index"`
 	FrozenAt      *time.Time
 }
-
-func (Room) TableName() string { return "rooms" }

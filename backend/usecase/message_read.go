@@ -16,14 +16,16 @@ type MessageReadUseCase struct {
 	Reads    repository.MessageReadRepository
 	Rooms    repository.RoomRepository
 	Users    repository.UserRepository
+	Blocks   repository.UserBlockRepository
 }
 
-func NewMessageReadUseCase(messages repository.MessageRepository, reads repository.MessageReadRepository, rooms repository.RoomRepository, users repository.UserRepository) *MessageReadUseCase {
+func NewMessageReadUseCase(messages repository.MessageRepository, reads repository.MessageReadRepository, rooms repository.RoomRepository, users repository.UserRepository, blocks repository.UserBlockRepository) *MessageReadUseCase {
 	return &MessageReadUseCase{
 		Messages: messages,
 		Reads:    reads,
 		Rooms:    rooms,
 		Users:    users,
+		Blocks:   blocks,
 	}
 }
 
@@ -144,7 +146,13 @@ func (u *MessageReadUseCase) GetRoomReadState(ctx context.Context, userID, roomI
 	if readRow != nil {
 		lastRead = readRow.LastReadMessageID
 	}
-	unread, err := u.Messages.CountUnreadForViewer(ctx, roomID, userID, lastRead)
+	blockedIDs := make([]uuid.UUID, 0)
+	if u.Blocks != nil {
+		if ids, err := u.Blocks.ListBlockedUserIDs(ctx, userID); err == nil {
+			blockedIDs = ids
+		}
+	}
+	unread, err := u.Messages.CountUnreadForViewerExcludingSenders(ctx, roomID, userID, lastRead, blockedIDs)
 	if err != nil {
 		return nil, err
 	}

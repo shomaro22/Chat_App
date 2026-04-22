@@ -15,5 +15,3 @@ type MessageRead struct {
 	CreatedAt         time.Time  `gorm:"not null"`
 	UpdatedAt         time.Time  `gorm:"not null"`
 }
-
-func (MessageRead) TableName() string { return "message_reads" }

@@ -153,6 +153,36 @@ func (m *ConnectionManager) BroadcastToRoom(roomID uuid.UUID, payload []byte) {
 	}
 }
 
+func (m *ConnectionManager) BroadcastToRoomExceptUsers(roomID uuid.UUID, payload []byte, excludeUserIDs []uuid.UUID) {
+	m.mu.RLock()
+	subs := m.roomSubs[roomID]
+	if len(subs) == 0 {
+		m.mu.RUnlock()
+		return
+	}
+	excluded := make(map[uuid.UUID]struct{}, len(excludeUserIDs))
+	for i := range excludeUserIDs {
+		excluded[excludeUserIDs[i]] = struct{}{}
+	}
+	list := make([]*wsClient, 0, len(subs))
+	for cid := range subs {
+		if c, ok := m.clients[cid]; ok {
+			if _, ng := excluded[c.userID]; ng {
+				continue
+			}
+			list = append(list, c)
+		}
+	}
+	m.mu.RUnlock()
+
+	for _, c := range list {
+		c.writeMu.Lock()
+		c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		_ = c.conn.WriteMessage(websocket.TextMessage, payload)
+		c.writeMu.Unlock()
+	}
+}
+
 func (m *ConnectionManager) BroadcastToUsersInRooms(roomIDs []uuid.UUID, payload []byte) {
 	if len(roomIDs) == 0 || len(payload) == 0 {
 		return

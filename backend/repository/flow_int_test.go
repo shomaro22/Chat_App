@@ -33,7 +33,7 @@ func setupDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	sqlDB, err := gormDB.DB()
 	require.NoError(t, err)
-	_, err = sqlDB.Exec(`TRUNCATE message_reads, messages, room_members, rooms, users RESTART IDENTITY CASCADE`)
+	_, err = sqlDB.Exec(`TRUNCATE user_blocks, message_reads, messages, room_members, rooms, users RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
 	return gormDB
 }

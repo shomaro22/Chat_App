@@ -44,6 +44,7 @@ const (
 	APICodeInternal                = "INTERNAL_ERROR"
 	APICodeForbiddenAdmin          = "FORBIDDEN_ADMIN"
 	APICodeRateLimited             = "RATE_LIMITED"
+	APICodeCannotBlockSelf         = "CANNOT_BLOCK_SELF"
 )
 
 // mapDomainError maps chat domain errors to JSON: error message + optional stable code.
@@ -130,6 +131,8 @@ func domainErrHTTP(err error) (status int, apiCode string, msg string) {
 		return http.StatusBadRequest, "INVALID_SEARCH_QUERY", err.Error()
 	case errors.Is(err, usecase.ErrInvalidEmoji):
 		return http.StatusBadRequest, "INVALID_EMOJI", err.Error()
+	case errors.Is(err, usecase.ErrCannotBlockSelf):
+		return http.StatusBadRequest, APICodeCannotBlockSelf, err.Error()
 	case errors.Is(err, usecase.ErrInvalidToken):
 		return http.StatusBadRequest, "INVALID_TOKEN", err.Error()
 	case errors.Is(err, usecase.ErrWrongPassword):

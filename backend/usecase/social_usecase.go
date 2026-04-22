@@ -18,6 +18,7 @@ type SocialUseCase struct {
 	Pins      repository.RoomPinRepository
 	Bookmarks repository.UserBookmarkRepository
 	Rooms     repository.RoomRepository
+	Blocks    repository.UserBlockRepository
 }
 
 func NewSocialUseCase(
@@ -26,6 +27,7 @@ func NewSocialUseCase(
 	pins repository.RoomPinRepository,
 	bm repository.UserBookmarkRepository,
 	rooms repository.RoomRepository,
+	blocks repository.UserBlockRepository,
 ) *SocialUseCase {
 	return &SocialUseCase{
 		Messages:  msg,
@@ -33,6 +35,7 @@ func NewSocialUseCase(
 		Pins:      pins,
 		Bookmarks: bm,
 		Rooms:     rooms,
+		Blocks:    blocks,
 	}
 }
 
@@ -151,6 +154,14 @@ func (s *SocialUseCase) ListBookmarksWithMessages(ctx context.Context, userID uu
 	if err != nil {
 		return nil, 0, err
 	}
+	blockedSet := make(map[uuid.UUID]struct{})
+	if s.Blocks != nil {
+		if ids, err := s.Blocks.ListBlockedUserIDs(ctx, userID); err == nil {
+			for i := range ids {
+				blockedSet[ids[i]] = struct{}{}
+			}
+		}
+	}
 	out := make([]BookmarkWithMessage, 0, len(rows))
 	for i := range rows {
 		m, err := s.Messages.FindByID(ctx, rows[i].MessageID)
@@ -160,7 +171,49 @@ func (s *SocialUseCase) ListBookmarksWithMessages(ctx context.Context, userID uu
 		if m == nil {
 			continue
 		}
+		if _, blocked := blockedSet[m.SenderID]; blocked {
+			continue
+		}
 		out = append(out, BookmarkWithMessage{Bookmark: rows[i], Message: *m})
 	}
 	return out, total, nil
+}
+
+func (s *SocialUseCase) BlockUser(ctx context.Context, blockerID, blockedID uuid.UUID) error {
+	if blockerID == uuid.Nil || blockedID == uuid.Nil {
+		return ErrInvalidUserID
+	}
+	if blockerID == blockedID {
+		return ErrCannotBlockSelf
+	}
+	if s.Blocks == nil {
+		return nil
+	}
+	return s.Blocks.Block(ctx, blockerID, blockedID)
+}
+
+func (s *SocialUseCase) UnblockUser(ctx context.Context, blockerID, blockedID uuid.UUID) error {
+	if blockerID == uuid.Nil || blockedID == uuid.Nil {
+		return ErrInvalidUserID
+	}
+	if blockerID == blockedID {
+		return ErrCannotBlockSelf
+	}
+	if s.Blocks == nil {
+		return nil
+	}
+	return s.Blocks.Unblock(ctx, blockerID, blockedID)
+}
+
+func (s *SocialUseCase) IsBlockedUser(ctx context.Context, blockerID, blockedID uuid.UUID) (bool, error) {
+	if blockerID == uuid.Nil || blockedID == uuid.Nil {
+		return false, ErrInvalidUserID
+	}
+	if blockerID == blockedID {
+		return false, ErrCannotBlockSelf
+	}
+	if s.Blocks == nil {
+		return false, nil
+	}
+	return s.Blocks.IsBlocked(ctx, blockerID, blockedID)
 }

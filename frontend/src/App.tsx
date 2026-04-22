@@ -1,7 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import './App.css';
-import { getToken, setUnauthorizedHandler } from './lib/api';
+import { fetchWithAuth, getToken, setUnauthorizedHandler } from './lib/api';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { AdminPage } from './pages/AdminPage';
@@ -15,7 +15,27 @@ import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 
 function RequireAuth() {
   const location = useLocation();
-  if (!getToken()) {
+  const [status, setStatus] = useState<'checking' | 'authed' | 'unauth'>(() =>
+    getToken() ? 'checking' : 'unauth',
+  );
+
+  useEffect(() => {
+    if (!getToken()) return;
+    let alive = true;
+    void (async () => {
+      const res = await fetchWithAuth('/me');
+      if (!alive) return;
+      setStatus(res.ok ? 'authed' : 'unauth');
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (status === 'checking') {
+    return <div className="chat-empty">認証状態を確認中...</div>;
+  }
+  if (status !== 'authed') {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
   return <Outlet />;

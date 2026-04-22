@@ -21,5 +21,3 @@ type Message struct {
 	UpdatedAt        time.Time  `gorm:"not null"`
 	DeletedAt        *time.Time
 }
-
-func (Message) TableName() string { return "messages" }
