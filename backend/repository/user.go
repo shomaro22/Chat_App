@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
-	"time"
+	"strings"
 
 	"chat-app/entity"
 
@@ -13,9 +13,13 @@ import (
 
 type UserRepository interface {
 	Create(ctx context.Context, u *entity.User) error
+	Update(ctx context.Context, u *entity.User) error
 	FindByID(ctx context.Context, id uuid.UUID) (*entity.User, error)
 	FindByEmail(ctx context.Context, email string) (*entity.User, error)
 	FindByIDs(ctx context.Context, ids []uuid.UUID) ([]entity.User, error)
+	SetActive(ctx context.Context, id uuid.UUID, active bool) error
+	// ListForAdmin は管理者向けユーザー一覧（メール・名前・UUID の部分一致、作成日降順）。
+	ListForAdmin(ctx context.Context, search string, limit, offset int) ([]entity.User, int64, error)
 }
 
 type userRepository struct {
@@ -27,40 +31,63 @@ func NewUserRepository(db *gorm.DB) UserRepository {
 }
 
 func (users *userRepository) Create(ctx context.Context, u *entity.User) error {
-	if u.ID == uuid.Nil {
-		u.ID = uuid.New()
-	}
-	now := time.Now().UTC()
-	if u.CreatedAt.IsZero() {
-		u.CreatedAt = now
-	}
-	if u.UpdatedAt.IsZero() {
-		u.UpdatedAt = now
-	}
-	m := userToModel(u)
-	return users.db.WithContext(ctx).Create(m).Error
+	return users.db.WithContext(ctx).Create(u).Error
+}
+
+func (users *userRepository) Update(ctx context.Context, u *entity.User) error {
+	return users.db.WithContext(ctx).Save(u).Error
 }
 
 func (users *userRepository) FindByID(ctx context.Context, id uuid.UUID) (*entity.User, error) {
-	var m UserModel
+	var m entity.User
 	if err := users.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return userToEntity(&m), nil
+	return &m, nil
 }
 
 func (users *userRepository) FindByEmail(ctx context.Context, email string) (*entity.User, error) {
-	var m UserModel
+	var m entity.User
 	if err := users.db.WithContext(ctx).Where("email = ?", email).First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return userToEntity(&m), nil
+	return &m, nil
+}
+
+func (users *userRepository) SetActive(ctx context.Context, id uuid.UUID, active bool) error {
+	return users.db.WithContext(ctx).Model(&entity.User{}).Where("id = ?", id).Update("active", active).Error
+}
+
+func (users *userRepository) ListForAdmin(ctx context.Context, search string, limit, offset int) ([]entity.User, int64, error) {
+	q := users.db.WithContext(ctx).Model(&entity.User{})
+	if s := strings.TrimSpace(search); s != "" {
+		pattern := "%" + s + "%"
+		q = q.Where("CAST(id AS TEXT) ILIKE ? OR email ILIKE ? OR name ILIKE ?", pattern, pattern, pattern)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var rows []entity.User
+	if err := q.Order("created_at DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+	return rows, total, nil
 }
 
 func (users *userRepository) FindByIDs(ctx context.Context, ids []uuid.UUID) ([]entity.User, error) {
@@ -68,17 +95,11 @@ func (users *userRepository) FindByIDs(ctx context.Context, ids []uuid.UUID) ([]
 	if len(uniq) == 0 {
 		return nil, nil
 	}
-	var models []UserModel
-	if err := users.db.WithContext(ctx).Where("id IN ?", uniq).Find(&models).Error; err != nil {
+	var usersRows []entity.User
+	if err := users.db.WithContext(ctx).Where("id IN ?", uniq).Find(&usersRows).Error; err != nil {
 		return nil, err
 	}
-	out := make([]entity.User, 0, len(models))
-	for i := range models {
-		if e := userToEntity(&models[i]); e != nil {
-			out = append(out, *e)
-		}
-	}
-	return out, nil
+	return usersRows, nil
 }
 
 func uniqueUserIDs(ids []uuid.UUID) []uuid.UUID {
