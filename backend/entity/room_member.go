@@ -13,5 +13,3 @@ type RoomMember struct {
 	JoinedAt time.Time `gorm:"not null"`
 	LeftAt   *time.Time
 }
-
-func (RoomMember) TableName() string { return "room_members" }

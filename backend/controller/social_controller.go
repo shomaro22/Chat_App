@@ -5,18 +5,16 @@ import (
 	"strconv"
 	"time"
 
-	"chat-app/usecase"
-
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
 // SocialController はリアクション・ピン・ブックマーク。
 type SocialController struct {
-	Social *usecase.SocialUseCase
+	Social SocialUseCase
 }
 
-func NewSocialController(s *usecase.SocialUseCase) *SocialController {
+func NewSocialController(s SocialUseCase) *SocialController {
 	return &SocialController{Social: s}
 }
 
@@ -39,6 +37,11 @@ type bookmarkRowJSON struct {
 	MessageID uuid.UUID   `json:"message_id"`
 	CreatedAt string      `json:"created_at"`
 	Message   messageJSON `json:"message"`
+}
+
+type blockStateResponse struct {
+	UserID  uuid.UUID `json:"user_id"`
+	Blocked bool      `json:"blocked"`
 }
 
 // PostReaction は POST /rooms/:id/messages/:messageId/reactions
@@ -245,4 +248,53 @@ func (h *SocialController) ListBookmarks(c echo.Context) error {
 		})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"bookmarks": out, "total": total})
+}
+
+// PostBlockUser は POST /users/:id/block
+func (h *SocialController) PostBlockUser(c echo.Context) error {
+	targetID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return jsonError(c, http.StatusBadRequest, "invalid user id")
+	}
+	userID, err := CurrentUserID(c)
+	if err != nil {
+		return err
+	}
+	if err := h.Social.BlockUser(c.Request().Context(), userID, targetID); err != nil {
+		return mapDomainError(c, err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// DeleteBlockUser は DELETE /users/:id/block
+func (h *SocialController) DeleteBlockUser(c echo.Context) error {
+	targetID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return jsonError(c, http.StatusBadRequest, "invalid user id")
+	}
+	userID, err := CurrentUserID(c)
+	if err != nil {
+		return err
+	}
+	if err := h.Social.UnblockUser(c.Request().Context(), userID, targetID); err != nil {
+		return mapDomainError(c, err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// GetBlockUser は GET /users/:id/block
+func (h *SocialController) GetBlockUser(c echo.Context) error {
+	targetID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return jsonError(c, http.StatusBadRequest, "invalid user id")
+	}
+	userID, err := CurrentUserID(c)
+	if err != nil {
+		return err
+	}
+	blocked, err := h.Social.IsBlockedUser(c.Request().Context(), userID, targetID)
+	if err != nil {
+		return mapDomainError(c, err)
+	}
+	return c.JSON(http.StatusOK, blockStateResponse{UserID: targetID, Blocked: blocked})
 }

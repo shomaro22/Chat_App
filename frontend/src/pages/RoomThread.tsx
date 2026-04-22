@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { fetchWithAuth } from '../lib/api';
 import { requestRoomsRefresh } from '../lib/roomsRefresh';
 import { toErrorMessage } from '../chat/errors';
@@ -58,7 +58,9 @@ function aggregateReactions(
 
 export function RoomThread() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const targetMessageId = searchParams.get('message_id')?.trim() || null;
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -78,6 +80,9 @@ export function RoomThread() {
   const [pin, setPin] = useState<{ message_id: string } | null>(null);
   const [bookmarkedByMessage, setBookmarkedByMessage] = useState<Record<string, boolean>>({});
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
+  const [peerBlocked, setPeerBlocked] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<
     | null
     | { type: 'close-room' }
@@ -432,12 +437,53 @@ export function RoomThread() {
   }, [id, loadMessagesAndReadState, loadRoomDetail]);
 
   useEffect(() => {
+    if (!id || roomMeta?.type !== 'direct' || !directPeer?.user_id) {
+      setPeerBlocked(false);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      const res = await fetchWithAuth(`/users/${directPeer.user_id}/block`);
+      if (!alive || !res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      setPeerBlocked(Boolean(data.blocked));
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [id, roomMeta?.type, directPeer?.user_id]);
+
+  useEffect(() => {
     const el = messageListRef.current;
     if (!id || !el || messages.length === 0) return;
     if (initialScrolledRoomRef.current === id) return;
     initialScrolledRoomRef.current = id;
     el.scrollTop = el.scrollHeight;
   }, [id, messages]);
+
+  useEffect(() => {
+    if (!id || !targetMessageId) {
+      setHighlightedMessageId(null);
+      return;
+    }
+    const found = messages.some((m) => m.id === targetMessageId);
+    if (!found) {
+      if (hasMoreOlder && !loadingOlder) {
+        void runLoadOlderWithScrollCapture();
+      }
+      return;
+    }
+    const root = messageListRef.current;
+    if (!root) return;
+    const el = root.querySelector(`[data-message-id="${targetMessageId}"]`) as HTMLElement | null;
+    if (!el) return;
+    setHighlightedMessageId(targetMessageId);
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const tid = window.setTimeout(() => {
+      setHighlightedMessageId((prev) => (prev === targetMessageId ? null : prev));
+    }, 2200);
+    return () => window.clearTimeout(tid);
+  }, [id, targetMessageId, messages, hasMoreOlder, loadingOlder, runLoadOlderWithScrollCapture]);
 
   useEffect(() => {
     if (!id || !latestVisibleMessageId) return;
@@ -829,6 +875,29 @@ export function RoomThread() {
     }
   };
 
+  const toggleDirectPeerBlock = async () => {
+    if (roomMeta?.type !== 'direct' || !directPeer?.user_id || blockBusy) return;
+    setBlockBusy(true);
+    setRoomModalError(null);
+    try {
+      const res = await fetchWithAuth(`/users/${directPeer.user_id}/block`, {
+        method: peerBlocked ? 'DELETE' : 'POST',
+      });
+      if (res.status === 401) return;
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setRoomModalError(toErrorMessage(res.status, (data as { error?: string }).error ?? 'ブロック操作に失敗しました。'));
+        return;
+      }
+      setPeerBlocked((prev) => !prev);
+      await loadMessagesAndReadState();
+      await loadRoomDetail();
+      requestRoomsRefresh();
+    } finally {
+      setBlockBusy(false);
+    }
+  };
+
   const confirmTitle =
     confirmAction?.type === 'close-room'
       ? 'ルームを閉じる'
@@ -943,6 +1012,7 @@ export function RoomThread() {
         bookmarkedByMessage={bookmarkedByMessage}
         onToggleBookmark={handleToggleBookmark}
         showGroupReadCounts={roomMeta?.type === 'group'}
+        highlightedMessageId={highlightedMessageId}
       />
       <div className="chat-status">
         <div className="chat-status-row chat-status-members-block">
@@ -1004,6 +1074,24 @@ export function RoomThread() {
             {roomMeta?.is_frozen && (
               <p className="muted">このルームは凍結中です。名前変更・メンバー追加・送信はサーバー側の制限に従います。</p>
             )}
+            {roomMeta?.type === 'direct' && directPeer && (
+              <div className="room-settings-block">
+                <label className="room-settings-label">ユーザー制御</label>
+                <p className="muted">
+                  {peerBlocked
+                    ? 'このユーザーをブロック中です。相手の新着メッセージは表示・通知されません。'
+                    : 'ブロックすると相手の新着メッセージは表示・通知されません。'}
+                </p>
+                <button
+                  type="button"
+                  className={`pill-button ${peerBlocked ? '' : 'danger-outline'}`}
+                  disabled={roomActionBusy || blockBusy}
+                  onClick={() => void toggleDirectPeerBlock()}
+                >
+                  {blockBusy ? '処理中…' : peerBlocked ? 'ブロック解除' : 'このユーザーをブロック'}
+                </button>
+              </div>
+            )}
             {canRenameGroup && (
               <div className="room-settings-block">
                 <label className="room-settings-label">グループ名</label>
@@ -1056,7 +1144,7 @@ export function RoomThread() {
                         {m.online ? ' ●' : ''}
                       </span>
                       <span className="room-member-actions-btns">
-                        {isSelf && (
+                        {isSelf && isGroup && (
                           <button
                             type="button"
                             className="pill-button danger-outline"

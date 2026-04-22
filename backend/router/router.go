@@ -108,6 +108,9 @@ func New(cfg Config) *echo.Echo {
 		api.POST("/messages/:id/bookmark", cfg.Social.PostBookmark)
 		api.DELETE("/messages/:id/bookmark", cfg.Social.DeleteBookmark)
 		api.GET("/me/bookmarks", cfg.Social.ListBookmarks)
+		api.POST("/users/:id/block", cfg.Social.PostBlockUser)
+		api.DELETE("/users/:id/block", cfg.Social.DeleteBlockUser)
+		api.GET("/users/:id/block", cfg.Social.GetBlockUser)
 	}
 	if cfg.WS != nil {
 		api.GET("/ws", cfg.WS.Handle)

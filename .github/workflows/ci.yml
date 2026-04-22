@@ -1,13 +1,23 @@
-name: CI
+name: CI/CD
 
 on:
   push:
     branches: [main, master]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend-unit:
+    name: Backend Unit & Vet
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -18,11 +28,13 @@ jobs:
         working-directory: backend
         run: |
           go vet ./...
-          go test ./... -count=1 -short -timeout 10m
+          go test ./... -count=1 -short -timeout 12m
 
   backend-integration:
+    name: Backend Integration
     needs: backend-unit
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16-alpine
@@ -49,8 +61,41 @@ jobs:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/chatapp?sslmode=disable
         run: go test -tags=integration ./... -count=1 -timeout 20m
 
-  frontend:
+  backend-message-contract:
+    name: Message Event Contract
+    needs: backend-unit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chatapp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d chatapp"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Message usecase contract tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/chatapp?sslmode=disable
+        run: go test ./usecase -tags=integration -run "TestMessageUseCase_Events_" -count=1 -timeout 10m
+
+  frontend:
+    name: Frontend Lint & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -66,8 +111,10 @@ jobs:
           npm run build
 
   e2e-playwright:
+    name: Frontend/Backend E2E
     needs: [backend-unit, frontend]
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     services:
       postgres:
         image: postgres:16-alpine
@@ -104,10 +151,21 @@ jobs:
           CI: "true"
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/chatapp?sslmode=disable
         run: npm run test:e2e
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            frontend/test-results
+            frontend/playwright-report
+          if-no-files-found: ignore
 
   k6-spec:
-    needs: backend-integration
+    name: k6 API Spec Load
+    needs: [backend-integration, backend-message-contract]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16-alpine
@@ -147,7 +205,7 @@ jobs:
           done
           cat /tmp/k6-api.log || true
           exit 1
-      - name: k6（単一シナリオ: health〜送信・既読）
+      - name: "k6（単一シナリオ: health〜送信・既読）"
         run: |
           docker run --rm --network=host \
             -v "${GITHUB_WORKSPACE}/k6:/k6:ro" \
@@ -159,3 +217,55 @@ jobs:
         if: always()
         run: |
           if [ -f /tmp/k6-api.pid ]; then kill $(cat /tmp/k6-api.pid) 2>/dev/null || true; fi
+
+  publish-images:
+    name: Publish Docker Images (main/master)
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    needs: [backend-integration, backend-message-contract, frontend, e2e-playwright, k6-spec]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Backend Docker metadata
+        id: meta_backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/backend
+          tags: |
+            type=sha,prefix=main-
+            type=raw,value=latest
+      - name: Frontend Docker metadata
+        id: meta_frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/frontend
+          tags: |
+            type=sha,prefix=main-
+            type=raw,value=latest
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta_backend.outputs.tags }}
+          labels: ${{ steps.meta_backend.outputs.labels }}
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: ${{ steps.meta_frontend.outputs.tags }}
+          labels: ${{ steps.meta_frontend.outputs.labels }}

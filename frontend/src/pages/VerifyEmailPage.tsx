@@ -4,12 +4,11 @@ import { fetchApi } from '../lib/api';
 
 export function VerifyEmailPage() {
   const [params] = useSearchParams();
-  const [msg, setMsg] = useState('確認中…');
+  const token = params.get('token');
+  const [msg, setMsg] = useState(token ? '確認中…' : 'トークンがありません。');
 
   useEffect(() => {
-    const token = params.get('token');
     if (!token) {
-      setMsg('トークンがありません。');
       return;
     }
     void (async () => {
@@ -20,7 +19,7 @@ export function VerifyEmailPage() {
       if (res.ok) setMsg('メール確認が完了しました。ログインしてください。');
       else setMsg('確認に失敗しました。リンクの期限切れの可能性があります。');
     })();
-  }, [params]);
+  }, [token]);
 
   return (
     <div className="auth-page">

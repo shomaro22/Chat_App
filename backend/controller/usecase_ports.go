@@ -5,6 +5,8 @@ import (
 	"io"
 
 	"chat-app/entity"
+	"chat-app/repository"
+	"chat-app/usecase"
 
 	"github.com/google/uuid"
 )
@@ -28,6 +30,9 @@ type RoomUseCase interface {
 // MessageUseCase はメッセージ送受信・削除
 type MessageUseCase interface {
 	SendMessage(ctx context.Context, roomID, senderID uuid.UUID, content, imageURL *string) (*entity.Message, error)
+	SendRoomMessage(ctx context.Context, in usecase.MessageSendInput) (*entity.Message, error)
+	EditMessage(ctx context.Context, messageID, editorID uuid.UUID, content *string) (*entity.Message, error)
+	SearchJoined(ctx context.Context, userID uuid.UUID, query string, limit int) ([]ListedMessage, error)
 	ListMessages(ctx context.Context, roomID, userID uuid.UUID, beforeID, afterID *uuid.UUID, limit int, orderDesc, includeReadCount bool) ([]ListedMessage, error)
 	DeleteMessage(ctx context.Context, messageID, userID uuid.UUID) (uuid.UUID, error)
 }
@@ -50,6 +55,39 @@ type AdminUseCase interface {
 	SetUserActive(ctx context.Context, adminID, targetUserID uuid.UUID, active bool) error
 	SetRoomFrozen(ctx context.Context, adminID, roomID uuid.UUID, frozen bool) error
 	ForceRemoveMember(ctx context.Context, adminID, roomID, targetUserID uuid.UUID) error
+}
+
+// AuthUseCase は認証系 API から参照する操作
+type AuthUseCase interface {
+	Login(ctx context.Context, email, password string) (string, error)
+	Register(ctx context.Context, name, email, password, bootstrapAdminEmail string) (*usecase.RegisterResult, error)
+	CreateTokenForUser(ctx context.Context, userID uuid.UUID) (string, error)
+	CurrentUser(ctx context.Context, userID uuid.UUID) (*entity.User, error)
+	ForgotPassword(ctx context.Context, email string) error
+	ResetPassword(ctx context.Context, plainToken, newPassword string) error
+	VerifyEmail(ctx context.Context, plainToken string) error
+	ChangePassword(ctx context.Context, userID uuid.UUID, currentPassword, newPassword string) error
+}
+
+// ProfileUseCase はプロフィール更新 API から参照する操作
+type ProfileUseCase interface {
+	UpdateProfile(ctx context.Context, userID uuid.UUID, in usecase.UpdateProfileInput) (*entity.User, error)
+}
+
+// SocialUseCase はリアクション・ピン・ブックマーク API から参照する操作
+type SocialUseCase interface {
+	AddReaction(ctx context.Context, roomID, userID, messageID uuid.UUID, emoji string) error
+	RemoveReaction(ctx context.Context, roomID, userID, messageID uuid.UUID, emoji string) error
+	ListReactions(ctx context.Context, roomID, userID, messageID uuid.UUID) ([]repository.MessageReaction, error)
+	SetPin(ctx context.Context, roomID, actorID, messageID uuid.UUID) error
+	ClearPin(ctx context.Context, roomID, actorID uuid.UUID) error
+	GetPin(ctx context.Context, roomID, userID uuid.UUID) (*repository.RoomPin, error)
+	AddBookmark(ctx context.Context, userID, messageID uuid.UUID) error
+	RemoveBookmark(ctx context.Context, userID, messageID uuid.UUID) error
+	ListBookmarksWithMessages(ctx context.Context, userID uuid.UUID, limit, offset int) ([]usecase.BookmarkWithMessage, int64, error)
+	BlockUser(ctx context.Context, blockerID, blockedID uuid.UUID) error
+	UnblockUser(ctx context.Context, blockerID, blockedID uuid.UUID) error
+	IsBlockedUser(ctx context.Context, blockerID, blockedID uuid.UUID) (bool, error)
 }
 
 // MediaUseCase は画像・ファイルアップロード保存

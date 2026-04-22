@@ -25,6 +25,7 @@ type Props = {
   onToggleBookmark?: (messageId: string) => void;
   /** グループルームで API の read_count をメッセージごとに表示 */
   showGroupReadCounts?: boolean;
+  highlightedMessageId?: string | null;
 };
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂'];
@@ -57,6 +58,7 @@ export function MessageList({
   bookmarkedByMessage,
   onToggleBookmark,
   showGroupReadCounts,
+  highlightedMessageId,
 }: Props) {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState('');
@@ -87,7 +89,7 @@ export function MessageList({
         return (
         <div
           key={m.id}
-          className={`message-row${isSelfMessage ? ' message-row-self' : ' message-row-other'}${m.is_deleted ? ' message-row-deleted' : ''}${m.id === pinnedMessageId ? ' message-row-pinned' : ''}`}
+          className={`message-row${isSelfMessage ? ' message-row-self' : ' message-row-other'}${m.is_deleted ? ' message-row-deleted' : ''}${m.id === pinnedMessageId ? ' message-row-pinned' : ''}${m.id === highlightedMessageId ? ' message-row-highlighted' : ''}`}
           data-message-id={m.id}
         >
           <div className="message-meta">

@@ -22,6 +22,7 @@ func newMessageReadUseCase(gormDB *gorm.DB) *MessageReadUseCase {
 		repository.NewMessageReadRepository(gormDB),
 		repository.NewRoomRepository(gormDB),
 		repository.NewUserRepository(gormDB),
+		nil,
 	)
 }
 

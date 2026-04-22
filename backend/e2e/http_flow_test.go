@@ -104,17 +104,19 @@ func newTestEchoWithRateLimiter(t *testing.T, gormDB *gorm.DB, publicRoot, boots
 	reactionRepo := repository.NewMessageReactionRepository(gormDB)
 	pinRepo := repository.NewRoomPinRepository(gormDB)
 	bookmarkRepo := repository.NewUserBookmarkRepository(gormDB)
+	blockRepo := repository.NewUserBlockRepository(gormDB)
 
 	tokenSvc := auth.NewTokenService([]byte(jwtSecretE2E), auth.DefaultTokenTTL)
 	authUC := usecase.NewAuthUseCase(users, tokenSvc).WithEmailFlow(tokRepo, usecase.LogMailer{}, false, "http://localhost:5173")
 	profileUC := usecase.NewProfileUseCase(users)
-	roomUC := usecase.NewRoomUseCase(roomTx, users, rooms, members, msgRepo, readRepo, hubOnlineLookup{hub})
+	roomUC := usecase.NewRoomUseCase(roomTx, users, rooms, members, msgRepo, readRepo, hubOnlineLookup{hub}, blockRepo)
 	mediaUC := usecase.NewMediaUseCase(publicRoot)
-	msgUC := usecase.NewMessageUseCase(msgRepo, users, rooms, mediaUC)
-	readUC := usecase.NewMessageReadUseCase(msgRepo, readRepo, rooms, users)
+	msgUC := usecase.NewMessageUseCase(msgRepo, users, rooms, mediaUC, blockRepo).
+		WithEventHook(controller.NewMessageEventPublisher(hub, blockRepo))
+	readUC := usecase.NewMessageReadUseCase(msgRepo, readRepo, rooms, users, blockRepo)
 	presenceUC := usecase.NewPresenceUseCase(rooms)
 	adminUC := usecase.NewAdminUseCase(users, rooms, members)
-	socialUC := usecase.NewSocialUseCase(msgRepo, reactionRepo, pinRepo, bookmarkRepo, rooms)
+	socialUC := usecase.NewSocialUseCase(msgRepo, reactionRepo, pinRepo, bookmarkRepo, rooms, blockRepo)
 	rateUC := usecase.NewRateLimitUseCase(rateRepo)
 
 	validateSession := func(c echo.Context, uid uuid.UUID, _ entity.UserRole) error {
@@ -132,7 +134,7 @@ func newTestEchoWithRateLimiter(t *testing.T, gormDB *gorm.DB, publicRoot, boots
 	cfg := router.Config{
 		Auth:            controller.NewAuthController(authUC, profileUC, bootstrapAdminEmail),
 		Room:            controller.NewRoomController(controller.NewRoomUseCaseAdapter(roomUC)),
-		Messages:        controller.NewMessageController(msgUC, hub, mediaUC),
+		Messages:        controller.NewMessageController(controller.NewMessageUseCaseAdapter(msgUC), mediaUC),
 		Reads:           controller.NewMessageReadController(controller.NewMessageReadUseCaseAdapter(readUC), hub),
 		WS:              controller.NewWSController(wsHubAdapter{hub}, controller.NewRoomUseCaseAdapter(roomUC), presenceUC),
 		Media:           controller.NewMediaController(mediaUC),

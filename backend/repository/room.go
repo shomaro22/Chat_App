@@ -144,6 +144,21 @@ func (rooms *roomRepository) FindDirectRoomByUserPair(ctx context.Context, userA
 		Scopes(notDeletedRoom).
 		Where("type = ?", string(entity.RoomTypeDirect)).
 		Where("direct_user_a_id = ? AND direct_user_b_id = ?", a, b).
+		Where(`(
+			SELECT COUNT(*)
+			FROM room_members rm
+			WHERE rm.room_id = rooms.id AND rm.left_at IS NULL
+		) = 2`).
+		Where(`EXISTS (
+			SELECT 1
+			FROM room_members rm2
+			WHERE rm2.room_id = rooms.id AND rm2.left_at IS NULL AND rm2.user_id = ?
+		)`, a).
+		Where(`EXISTS (
+			SELECT 1
+			FROM room_members rm3
+			WHERE rm3.room_id = rooms.id AND rm3.left_at IS NULL AND rm3.user_id = ?
+		)`, b).
 		First(&m).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

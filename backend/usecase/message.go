@@ -42,20 +42,34 @@ type PublicUploadDeleter interface {
 	DeleteByPublicURL(urlPath string)
 }
 
+type MessageEventHook interface {
+	OnMessageCreated(ctx context.Context, msg *entity.Message)
+	OnMessageUpdated(ctx context.Context, msg *entity.Message)
+	OnMessageDeleted(ctx context.Context, roomID, messageID, senderID uuid.UUID)
+}
+
 type MessageUseCase struct {
 	MessageRepo repository.MessageRepository
 	Users       repository.UserRepository
 	Rooms       repository.RoomRepository
 	Uploads     PublicUploadDeleter
+	Events      MessageEventHook
+	Blocks      repository.UserBlockRepository
 }
 
-func NewMessageUseCase(messages repository.MessageRepository, users repository.UserRepository, rooms repository.RoomRepository, uploads PublicUploadDeleter) *MessageUseCase {
+func NewMessageUseCase(messages repository.MessageRepository, users repository.UserRepository, rooms repository.RoomRepository, uploads PublicUploadDeleter, blocks repository.UserBlockRepository) *MessageUseCase {
 	return &MessageUseCase{
 		MessageRepo: messages,
 		Users:       users,
 		Rooms:       rooms,
 		Uploads:     uploads,
+		Blocks:      blocks,
 	}
+}
+
+func (u *MessageUseCase) WithEventHook(events MessageEventHook) *MessageUseCase {
+	u.Events = events
+	return u
 }
 
 func validateStaticUploadPath(u *string) error {
@@ -168,6 +182,9 @@ func (u *MessageUseCase) SendRoomMessage(ctx context.Context, in MessageSendInpu
 	if u.Rooms != nil {
 		_ = u.Rooms.UpdateUpdatedAt(ctx, in.RoomID, now)
 	}
+	if u.Events != nil {
+		u.Events.OnMessageCreated(ctx, msg)
+	}
 	return msg, nil
 }
 
@@ -205,6 +222,9 @@ func (u *MessageUseCase) EditMessage(ctx context.Context, messageID, editorID uu
 	}
 	msg.Content = content
 	msg.UpdatedAt = now
+	if u.Events != nil {
+		u.Events.OnMessageUpdated(ctx, msg)
+	}
 	return msg, nil
 }
 
@@ -229,6 +249,17 @@ func (u *MessageUseCase) ListMessages(ctx context.Context, roomID, userID uuid.U
 	rows, err := u.MessageRepo.ListByRoomID(ctx, roomID, beforeID, afterID, limit, orderDesc)
 	if err != nil {
 		return nil, err
+	}
+	blockedSet, _ := u.blockedSenderSet(ctx, userID)
+	if len(blockedSet) > 0 {
+		filtered := make([]entity.Message, 0, len(rows))
+		for i := range rows {
+			if _, blocked := blockedSet[rows[i].SenderID]; blocked {
+				continue
+			}
+			filtered = append(filtered, rows[i])
+		}
+		rows = filtered
 	}
 	if len(rows) == 0 {
 		return nil, nil
@@ -289,6 +320,17 @@ func (u *MessageUseCase) SearchJoined(ctx context.Context, userID uuid.UUID, que
 	rows, err := u.MessageRepo.SearchInJoinedRooms(ctx, userID, q, limit)
 	if err != nil {
 		return nil, err
+	}
+	blockedSet, _ := u.blockedSenderSet(ctx, userID)
+	if len(blockedSet) > 0 {
+		filtered := make([]entity.Message, 0, len(rows))
+		for i := range rows {
+			if _, blocked := blockedSet[rows[i].SenderID]; blocked {
+				continue
+			}
+			filtered = append(filtered, rows[i])
+		}
+		rows = filtered
 	}
 	if len(rows) == 0 {
 		return nil, nil
@@ -368,5 +410,23 @@ func (u *MessageUseCase) DeleteMessage(ctx context.Context, messageID, userID uu
 			u.Uploads.DeleteByPublicURL(*msg.FileURL)
 		}
 	}
+	if u.Events != nil {
+		u.Events.OnMessageDeleted(ctx, msg.RoomID, messageID, msg.SenderID)
+	}
 	return msg.RoomID, nil
+}
+
+func (u *MessageUseCase) blockedSenderSet(ctx context.Context, viewerID uuid.UUID) (map[uuid.UUID]struct{}, []uuid.UUID) {
+	if u.Blocks == nil || viewerID == uuid.Nil {
+		return nil, nil
+	}
+	ids, err := u.Blocks.ListBlockedUserIDs(ctx, viewerID)
+	if err != nil || len(ids) == 0 {
+		return nil, nil
+	}
+	set := make(map[uuid.UUID]struct{}, len(ids))
+	for i := range ids {
+		set[ids[i]] = struct{}{}
+	}
+	return set, ids
 }

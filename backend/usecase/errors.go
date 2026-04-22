@@ -53,4 +53,5 @@ var (
 	ErrWrongPassword     = errors.New("current password is incorrect")
 
 	ErrInvalidEmoji = errors.New("invalid emoji")
+	ErrCannotBlockSelf = errors.New("cannot block yourself")
 )

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { fetchWithAuth } from '../lib/api';
 import { toErrorMessage } from '../chat/errors';
+import { ErrorNotice } from '../components/ErrorNotice';
 import type { Message } from '../types/chat';
 
 export function SearchPage() {
@@ -11,8 +12,7 @@ export function SearchPage() {
   const [err, setErr] = useState<string | null>(null);
   const [rows, setRows] = useState<Message[]>([]);
 
-  const run = async (e: FormEvent) => {
-    e.preventDefault();
+  const performSearch = async () => {
     setLoading(true);
     setErr(null);
     setRows([]);
@@ -36,11 +36,16 @@ export function SearchPage() {
     }
   };
 
+  const run = async (e: FormEvent) => {
+    e.preventDefault();
+    await performSearch();
+  };
+
   return (
     <div className="auth-page">
       <div className="card admin-card">
         <h1>メッセージ検索</h1>
-        <p className="muted">
+        <p className="back-link-emphasis">
           <Link to="/rooms">← チャットに戻る</Link>
         </p>
         <form onSubmit={run} className="admin-toolbar">
@@ -54,11 +59,11 @@ export function SearchPage() {
             {loading ? '検索中…' : '検索'}
           </button>
         </form>
-        {err && <p className="error-text">{err}</p>}
+        {err && <ErrorNotice message={err} onRetry={() => void performSearch()} />}
         <ul style={{ listStyle: 'none', padding: 0 }}>
           {rows.map((m) => (
             <li key={m.id} style={{ marginBottom: 12, borderBottom: '1px solid #eee', paddingBottom: 8 }}>
-              <button type="button" className="pill-button" onClick={() => navigate(`/rooms/${m.room_id}`)}>
+              <button type="button" className="pill-button" onClick={() => navigate(`/rooms/${m.room_id}?message_id=${encodeURIComponent(m.id)}`)}>
                 ルームへ
               </button>{' '}
               <span className="muted">{m.sender_name ?? m.sender_id}</span>

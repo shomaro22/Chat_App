@@ -128,6 +128,30 @@ func (a *messageUseCaseAdapter) SendMessage(ctx context.Context, roomID, senderI
 	return a.inner.SendMessage(ctx, roomID, senderID, content, imageURL)
 }
 
+func (a *messageUseCaseAdapter) SendRoomMessage(ctx context.Context, in usecase.MessageSendInput) (*entity.Message, error) {
+	return a.inner.SendRoomMessage(ctx, in)
+}
+
+func (a *messageUseCaseAdapter) EditMessage(ctx context.Context, messageID, editorID uuid.UUID, content *string) (*entity.Message, error) {
+	return a.inner.EditMessage(ctx, messageID, editorID, content)
+}
+
+func (a *messageUseCaseAdapter) SearchJoined(ctx context.Context, userID uuid.UUID, query string, limit int) ([]ListedMessage, error) {
+	rows, err := a.inner.SearchJoined(ctx, userID, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ListedMessage, len(rows))
+	for i := range rows {
+		out[i] = ListedMessage{
+			Message:    rows[i].Message,
+			SenderName: rows[i].SenderName,
+			ReadCount:  rows[i].ReadCount,
+		}
+	}
+	return out, nil
+}
+
 func (a *messageUseCaseAdapter) ListMessages(ctx context.Context, roomID, userID uuid.UUID, beforeID, afterID *uuid.UUID, limit int, orderDesc, includeReadCount bool) ([]ListedMessage, error) {
 	rows, err := a.inner.ListMessages(ctx, roomID, userID, beforeID, afterID, limit, orderDesc, includeReadCount)
 	if err != nil {
