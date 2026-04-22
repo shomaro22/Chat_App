@@ -43,6 +43,13 @@ export function RegisterPage() {
         setPassword('');
         return;
       }
+      if (data.verification_required) {
+        setError(null);
+        setPassword('');
+        alert('確認メールを送信しました。メール内のリンクで認証後、ログインしてください。');
+        navigate('/login', { replace: true });
+        return;
+      }
       if (!data.access_token) {
         setError('不正なレスポンスです');
         setPassword('');

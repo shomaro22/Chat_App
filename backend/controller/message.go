@@ -1,12 +1,11 @@
 package controller
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
 
-	"chat-app/entity"
+	"chat-app/usecase"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -14,16 +13,18 @@ import (
 
 const maxMessageMultipartMemory = 12 << 20 // メディア上限 10MiB
 
-// MessageController はメッセージ関連の HTTP ハンドラと作成時の WS 通知。
+// MessageController はメッセージ関連の HTTP ハンドラ。
 type MessageController struct {
 	Messages MessageUseCase
-	Hub      RoomBroadcastHub
 	Media    MediaUseCase // multipart 画像送信に使用。nil のときファイル付き multipart は不可。
 }
 
 // NewMessageController は MessageController を生成する。
-func NewMessageController(messages MessageUseCase, hub RoomBroadcastHub, media MediaUseCase) *MessageController {
-	return &MessageController{Messages: messages, Hub: hub, Media: media}
+func NewMessageController(msgUC MessageUseCase, media MediaUseCase) *MessageController {
+	return &MessageController{
+		Messages: msgUC,
+		Media:    media,
+	}
 }
 
 // CreateMessage は POST /rooms/:id/messages でメッセージを作成する。
@@ -46,11 +47,20 @@ func (h *MessageController) CreateMessage(c echo.Context) error {
 	if err := c.Bind(&body); err != nil {
 		return jsonError(c, http.StatusBadRequest, "invalid json body")
 	}
-	msg, err := h.Messages.SendMessage(c.Request().Context(), roomID, senderID, body.Content, body.ImageURL)
+	in := usecase.MessageSendInput{
+		RoomID:           roomID,
+		SenderID:         senderID,
+		Content:          body.Content,
+		ImageURL:         body.ImageURL,
+		FileURL:          body.FileURL,
+		FileName:         body.FileName,
+		FileContentType:  body.FileContentType,
+		ParentMessageID:  body.ParentMessageID,
+	}
+	msg, err := h.Messages.SendRoomMessage(c.Request().Context(), in)
 	if err != nil {
 		return mapDomainError(c, err)
 	}
-	h.broadcastMessageCreated(msg)
 	return c.JSON(http.StatusCreated, createMessageResponse{Message: messageToJSON(msg)})
 }
 
@@ -91,29 +101,72 @@ func (h *MessageController) createMessageFromMultipart(c echo.Context, roomID, s
 		return jsonError(c, http.StatusBadRequest, "content or file is required")
 	}
 
-	msg, err := h.Messages.SendMessage(c.Request().Context(), roomID, senderID, content, imageURL)
+	msg, err := h.Messages.SendRoomMessage(c.Request().Context(), usecase.MessageSendInput{
+		RoomID: roomID, SenderID: senderID, Content: content, ImageURL: imageURL,
+	})
 	if err != nil {
 		return mapDomainError(c, err)
 	}
-	h.broadcastMessageCreated(msg)
 	return c.JSON(http.StatusCreated, createMessageResponse{Message: messageToJSON(msg)})
 }
 
-func (h *MessageController) broadcastMessageCreated(msg *entity.Message) {
-	if h.Hub == nil || msg == nil {
-		return
-	}
-	payload := messageCreatedWSBroadcast{
-		Type:          WSEventMessageCreated,
-		SchemaVersion: WSEventSchemaVersion,
-		RoomID:        msg.RoomID,
-		Message:       messageToJSON(msg),
-	}
-	b, err := json.Marshal(payload)
+// PatchMessage は PATCH /rooms/:id/messages/:messageId（本文のみ）。
+func (h *MessageController) PatchMessage(c echo.Context) error {
+	roomID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return
+		return jsonError(c, http.StatusBadRequest, "invalid room id")
 	}
-	h.Hub.BroadcastToRoom(msg.RoomID, b)
+	messageID, err := uuid.Parse(c.Param("messageId"))
+	if err != nil {
+		return jsonError(c, http.StatusBadRequest, "invalid message id")
+	}
+	userID, err := CurrentUserID(c)
+	if err != nil {
+		return err
+	}
+	var body patchMessageRequest
+	if err := c.Bind(&body); err != nil {
+		return jsonError(c, http.StatusBadRequest, "invalid json body")
+	}
+	content := strings.TrimSpace(body.Content)
+	msg, err := h.Messages.EditMessage(c.Request().Context(), messageID, userID, &content)
+	if err != nil {
+		return mapDomainError(c, err)
+	}
+	if msg.RoomID != roomID {
+		return jsonError(c, http.StatusBadRequest, "message does not belong to room")
+	}
+	return c.JSON(http.StatusOK, createMessageResponse{Message: messageToJSON(msg)})
+}
+
+// SearchMessages は GET /search/messages?q=…
+func (h *MessageController) SearchMessages(c echo.Context) error {
+	userID, err := CurrentUserID(c)
+	if err != nil {
+		return err
+	}
+	q := strings.TrimSpace(c.QueryParam("q"))
+	limit := 0
+	if raw := c.QueryParam("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			return jsonError(c, http.StatusBadRequest, "invalid limit")
+		}
+		limit = n
+	}
+	list, err := h.Messages.SearchJoined(c.Request().Context(), userID, q, limit)
+	if err != nil {
+		return mapDomainError(c, err)
+	}
+	out := make([]listedMessageJSON, 0, len(list))
+	for i := range list {
+		out = append(out, listedMessageToJSON(ListedMessage{
+			Message:    list[i].Message,
+			SenderName: list[i].SenderName,
+			ReadCount:  list[i].ReadCount,
+		}))
+	}
+	return c.JSON(http.StatusOK, map[string]any{"messages": out, "count": len(out)})
 }
 
 // ListMessages は GET /rooms/:id/messages で履歴を返す。order=asc|desc、include_read_count で既読人数を付与。
@@ -200,20 +253,9 @@ func (h *MessageController) DeleteMessage(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	roomID, err := h.Messages.DeleteMessage(c.Request().Context(), messageID, userID)
+	_, err = h.Messages.DeleteMessage(c.Request().Context(), messageID, userID)
 	if err != nil {
 		return mapDomainError(c, err)
-	}
-	if h.Hub != nil && roomID != uuid.Nil {
-		b, err := json.Marshal(messageDeletedWSBroadcast{
-			Type:          WSEventMessageDeleted,
-			SchemaVersion: WSEventSchemaVersion,
-			RoomID:        roomID,
-			MessageID:     messageID,
-		})
-		if err == nil {
-			h.Hub.BroadcastToRoom(roomID, b)
-		}
 	}
 	return c.NoContent(http.StatusNoContent)
 }

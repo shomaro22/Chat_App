@@ -52,9 +52,12 @@ func TestRateLimitFlow_HTTPPolicies_LoginRegisterMessageMedia(t *testing.T) {
 	var bobReg registerAPIResponse
 	require.NoError(t, json.Unmarshal(recB.Body.Bytes(), &bobReg))
 
-	doRequestWithIP(t, e, http.MethodPost, "/auth/login", "", map[string]string{
+	recLoginOK := doRequestWithIP(t, e, http.MethodPost, "/auth/login", "", map[string]string{
 		"email": "rla@e2e.test", "password": pass,
 	}, "198.51.100.10", http.StatusOK)
+	var loginOKBody loginAPIResponse
+	require.NoError(t, json.Unmarshal(recLoginOK.Body.Bytes(), &loginOKBody))
+	require.NotEmpty(t, loginOKBody.AccessToken)
 	loginEmail429 := doRequestWithIP(t, e, http.MethodPost, "/auth/login", "", map[string]string{
 		"email": "rla@e2e.test", "password": pass,
 	}, "198.51.100.10", http.StatusTooManyRequests)
@@ -79,7 +82,7 @@ func TestRateLimitFlow_HTTPPolicies_LoginRegisterMessageMedia(t *testing.T) {
 	}, "192.0.2.88", http.StatusTooManyRequests)
 	require.NotEmpty(t, reg429.Header().Get("Retry-After"))
 
-	tokenAlice := login(t, e, "rla@e2e.test", pass)
+	tokenAlice := loginOKBody.AccessToken
 	recG1 := doRequest(t, e, http.MethodPost, "/rooms/groups", tokenAlice, map[string]any{
 		"name":       "RL-1",
 		"member_ids": []string{bobReg.User.ID.String()},
@@ -193,12 +196,14 @@ func TestRateLimitFlow_WSConnectReconnectAndNoConflict(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &pong))
 	require.Equal(t, controller.WSEventPong, pong["type"])
 
-	for i := 0; i < 2; i++ {
-		_, loopResp, loopErr := dialWSRaw(srv.URL, tokenBob)
-		require.Error(t, loopErr)
-		require.NotNil(t, loopResp)
-		require.Equal(t, http.StatusTooManyRequests, loopResp.StatusCode)
-	}
+	// Bob: 1 回目は接続成功、2 回目は同一ウィンドウ内で WS 接続レートにより 429
+	bobConn1, _, errB1 := dialWSRaw(srv.URL, tokenBob)
+	require.NoError(t, errB1)
+	_ = bobConn1.Close()
+	_, bobResp2, errB2 := dialWSRaw(srv.URL, tokenBob)
+	require.Error(t, errB2)
+	require.NotNil(t, bobResp2)
+	require.Equal(t, http.StatusTooManyRequests, bobResp2.StatusCode)
 }
 
 func TestRateLimitFlow_RedisFailOpen(t *testing.T) {

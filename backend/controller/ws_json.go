@@ -25,9 +25,11 @@ const (
 	WSEventError           = "error"
 	WSEventSessionReady    = "session_ready"
 	WSEventMessageCreated  = "message_created"
+	WSEventMessageUpdated  = "message_updated"
 	WSEventMessageDeleted  = "message_deleted"
 	WSEventReadUpdated     = "read_updated"
 	WSEventPresenceUpdated = "presence_updated"
+	WSEventTyping          = "typing"
 	WSEventSubscribed      = "subscribed"
 	WSEventUnsubscribed    = "unsubscribed"
 	WSEventPong            = "pong"
@@ -36,6 +38,7 @@ const (
 // クライアント → サーバーの type（購読・解除・任意 JSON ping）。
 const (
 	WSClientPing = "ping"
+	WSClientTyping = "typing"
 
 	WSClientSubscribePrimary   = "subscribe"
 	WSClientSubscribeLegacy1   = "subscribe_room"
@@ -61,7 +64,17 @@ const (
 type wsClientMessage struct {
 	Type          string `json:"type"`
 	RoomID        string `json:"room_id"`
+	IsTyping      *bool  `json:"is_typing,omitempty"`
 	SchemaVersion int    `json:"schema_version,omitempty"`
+}
+
+// typingOutboundPayload は typing イベント（他ユーザー入力中）。
+type typingOutboundPayload struct {
+	Type          string    `json:"type"`
+	SchemaVersion int       `json:"schema_version"`
+	RoomID        uuid.UUID `json:"room_id"`
+	UserID        uuid.UUID `json:"user_id"`
+	IsTyping      bool      `json:"is_typing"`
 }
 
 // wsErrorOutbound は type=error の固定形。room_id は購読系エラー時に付く場合がある。

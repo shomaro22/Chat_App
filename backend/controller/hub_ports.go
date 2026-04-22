@@ -30,6 +30,7 @@ type WebSocketHub interface {
 	Unsubscribe(connID, roomID uuid.UUID)
 	WriteText(connID uuid.UUID, payload []byte) bool
 	SendPing(connID uuid.UUID) bool
+	BroadcastToRoom(roomID uuid.UUID, payload []byte)
 	BroadcastToUsersInRooms(roomIDs []uuid.UUID, payload []byte)
 	CloseUserConnections(userID uuid.UUID) HubPresenceChange
 }

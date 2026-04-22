@@ -21,7 +21,11 @@ export function sortMessagesAsc(list: Message[]): Message[] {
 /** 1 件をマージし、常に created_at + id 昇順に整列する */
 export function mergeMessageSorted(prev: Message[], next: Message): Message[] {
   const idx = prev.findIndex((m) => m.id === next.id);
-  const copy = idx >= 0 ? prev.map((m, i) => (i === idx ? next : m)) : [...prev, next];
+  let merged = next;
+  if (idx >= 0 && prev[idx].read_count != null && next.read_count == null) {
+    merged = { ...next, read_count: prev[idx].read_count };
+  }
+  const copy = idx >= 0 ? prev.map((m, i) => (i === idx ? merged : m)) : [...prev, merged];
   return sortMessagesAsc(copy);
 }
 

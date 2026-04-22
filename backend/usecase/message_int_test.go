@@ -15,11 +15,47 @@ import (
 	"gorm.io/gorm"
 )
 
+type messageEventRecorder struct {
+	created   []*entity.Message
+	updated   []*entity.Message
+	deleted   []struct {
+		roomID    uuid.UUID
+		messageID uuid.UUID
+	}
+}
+
+func (r *messageEventRecorder) OnMessageCreated(_ context.Context, msg *entity.Message) {
+	if msg == nil {
+		return
+	}
+	cp := *msg
+	r.created = append(r.created, &cp)
+}
+
+func (r *messageEventRecorder) OnMessageUpdated(_ context.Context, msg *entity.Message) {
+	if msg == nil {
+		return
+	}
+	cp := *msg
+	r.updated = append(r.updated, &cp)
+}
+
+func (r *messageEventRecorder) OnMessageDeleted(_ context.Context, roomID, messageID, _ uuid.UUID) {
+	r.deleted = append(r.deleted, struct {
+		roomID    uuid.UUID
+		messageID uuid.UUID
+	}{
+		roomID:    roomID,
+		messageID: messageID,
+	})
+}
+
 func newMessageUseCase(gormDB *gorm.DB) *MessageUseCase {
 	return NewMessageUseCase(
 		repository.NewMessageRepository(gormDB),
 		repository.NewUserRepository(gormDB),
 		repository.NewRoomRepository(gormDB),
+		nil,
 		nil,
 	)
 }
@@ -193,4 +229,66 @@ func TestMessageUseCase_DeleteMessage_NotFound(t *testing.T) {
 
 	_, err := uc.DeleteMessage(ctx, uuid.New(), u1.ID)
 	require.ErrorIs(t, err, ErrMessageNotFound)
+}
+
+func TestMessageUseCase_Events_TriggeredOnCreateEditDelete(t *testing.T) {
+	ctx := context.Background()
+	gormDB := setupUsecaseTestDB(t)
+	u1, _, r := setupGroupRoomWithMembers(t, gormDB)
+	rec := &messageEventRecorder{}
+	uc := newMessageUseCase(gormDB).WithEventHook(rec)
+
+	msg, err := uc.SendMessage(ctx, r.ID, u1.ID, strPtr("hello"), nil)
+	require.NoError(t, err)
+	require.Len(t, rec.created, 1)
+	require.Equal(t, msg.ID, rec.created[0].ID)
+	require.Empty(t, rec.updated)
+	require.Empty(t, rec.deleted)
+
+	edited, err := uc.EditMessage(ctx, msg.ID, u1.ID, strPtr("edited"))
+	require.NoError(t, err)
+	require.Len(t, rec.updated, 1)
+	require.Equal(t, edited.ID, rec.updated[0].ID)
+	require.NotNil(t, rec.updated[0].Content)
+	require.Equal(t, "edited", *rec.updated[0].Content)
+	require.Empty(t, rec.deleted)
+
+	roomID, err := uc.DeleteMessage(ctx, msg.ID, u1.ID)
+	require.NoError(t, err)
+	require.Equal(t, r.ID, roomID)
+	require.Len(t, rec.deleted, 1)
+	require.Equal(t, r.ID, rec.deleted[0].roomID)
+	require.Equal(t, msg.ID, rec.deleted[0].messageID)
+}
+
+func TestMessageUseCase_Events_NotTriggeredOnFailure(t *testing.T) {
+	ctx := context.Background()
+	gormDB := setupUsecaseTestDB(t)
+	u1, u2, r := setupGroupRoomWithMembers(t, gormDB)
+	rec := &messageEventRecorder{}
+	uc := newMessageUseCase(gormDB).WithEventHook(rec)
+
+	_, err := uc.SendMessage(ctx, r.ID, u1.ID, strPtr("   "), nil)
+	require.ErrorIs(t, err, ErrEmptyMessage)
+	require.Empty(t, rec.created)
+	require.Empty(t, rec.updated)
+	require.Empty(t, rec.deleted)
+
+	msg, err := uc.SendMessage(ctx, r.ID, u1.ID, strPtr("mine"), nil)
+	require.NoError(t, err)
+	require.Len(t, rec.created, 1)
+	require.Empty(t, rec.updated)
+	require.Empty(t, rec.deleted)
+
+	_, err = uc.EditMessage(ctx, msg.ID, u2.ID, strPtr("hijack"))
+	require.ErrorIs(t, err, ErrForbiddenMessageEdit)
+	require.Len(t, rec.created, 1)
+	require.Empty(t, rec.updated)
+	require.Empty(t, rec.deleted)
+
+	_, err = uc.DeleteMessage(ctx, msg.ID, u2.ID)
+	require.ErrorIs(t, err, ErrForbiddenMessageEdit)
+	require.Len(t, rec.created, 1)
+	require.Empty(t, rec.updated)
+	require.Empty(t, rec.deleted)
 }

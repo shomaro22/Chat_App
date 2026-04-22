@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { fetchWithAuth, getToken } from '../lib/api';
+import { fetchWithAuth, getToken, setToken } from '../lib/api';
 
 type MeUser = {
   id: string;
@@ -35,6 +35,10 @@ function toErrorMessage(status: number, fallback: string): string {
 
 type Tab = 'users' | 'rooms';
 
+function isAdminRole(role: string): boolean {
+  return role.trim().toLowerCase() === 'admin';
+}
+
 export function AdminPage() {
   const navigate = useNavigate();
   const [me, setMe] = useState<MeUser | null>(null);
@@ -62,6 +66,19 @@ export function AdminPage() {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [kickUserId, setKickUserId] = useState('');
   const [roomOpBusy, setRoomOpBusy] = useState(false);
+  const [roomMemberOptions, setRoomMemberOptions] = useState<Array<{ id: string; name: string; email?: string }>>([]);
+  const [confirmDialog, setConfirmDialog] = useState<
+    | null
+    | { type: 'bulk-active'; active: boolean; ids: string[] }
+    | { type: 'row-active'; active: boolean; userId: string; userLabel: string }
+    | { type: 'room-freeze'; frozen: boolean; roomId: string }
+    | { type: 'force-kick'; roomId: string; userId: string }
+  >(null);
+
+  const handleLogout = () => {
+    setToken(null);
+    navigate('/login', { replace: true });
+  };
 
   const loadMe = useCallback(async () => {
     setMeError(null);
@@ -152,15 +169,18 @@ export function AdminPage() {
   }, [me, tab, loadRooms]);
 
   const selectedCount = useMemo(
-    () => Object.entries(selectedUserIds).filter(([, v]) => v).length,
-    [selectedUserIds],
+    () =>
+      users.filter((u) => !isAdminRole(u.role) && Boolean(selectedUserIds[u.id])).length,
+    [selectedUserIds, users],
   );
 
   const toggleUserSelect = (id: string) => {
+    const row = users.find((u) => u.id === id);
+    if (row && isAdminRole(row.role)) return;
     setSelectedUserIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const setUserActiveOne = async (id: string, active: boolean) => {
+  const applySetUserActiveOne = async (id: string, active: boolean) => {
     setRowBusy(id);
     setUserMsg(null);
     try {
@@ -182,17 +202,11 @@ export function AdminPage() {
     }
   };
 
-  const bulkSetActive = async (active: boolean) => {
-    const ids = Object.entries(selectedUserIds)
-      .filter(([, v]) => v)
-      .map(([k]) => k);
-    if (ids.length === 0) {
-      setUserMsg('ユーザーを選択してください。');
-      return;
-    }
-    if (!window.confirm(active ? `${ids.length} 名を有効化しますか？` : `${ids.length} 名を BAN（無効化）しますか？`)) {
-      return;
-    }
+  const setUserActiveOne = async (id: string, active: boolean, userLabel: string) => {
+    setConfirmDialog({ type: 'row-active', active, userId: id, userLabel });
+  };
+
+  const applyBulkSetActive = async (active: boolean, ids: string[]) => {
     setBulkBusy(true);
     setUserMsg(null);
     try {
@@ -216,15 +230,26 @@ export function AdminPage() {
     }
   };
 
-  const applyRoomFreeze = async (frozen: boolean) => {
-    if (!selectedRoomId) {
+  const bulkSetActive = async (active: boolean) => {
+    const ids = Object.entries(selectedUserIds)
+      .filter(([id, v]) => v && !isAdminRole(users.find((u) => u.id === id)?.role ?? ''))
+      .map(([k]) => k);
+    if (ids.length === 0) {
+      setUserMsg('ユーザーを選択してください。');
+      return;
+    }
+    setConfirmDialog({ type: 'bulk-active', active, ids });
+  };
+
+  const applyRoomFreeze = async (roomId: string, frozen: boolean) => {
+    if (!roomId) {
       setRoomMsg('ルームを選択してください。');
       return;
     }
     setRoomOpBusy(true);
     setRoomMsg(null);
     try {
-      const res = await fetchWithAuth(`/admin/rooms/${selectedRoomId}/frozen`, {
+      const res = await fetchWithAuth(`/admin/rooms/${roomId}/frozen`, {
         method: 'PATCH',
         body: JSON.stringify({ frozen }),
       });
@@ -242,16 +267,49 @@ export function AdminPage() {
     }
   };
 
+  const askRoomFreeze = (frozen: boolean) => {
+    if (!selectedRoomId) {
+      setRoomMsg('ルームを選択してください。');
+      return;
+    }
+    setConfirmDialog({ type: 'room-freeze', frozen, roomId: selectedRoomId });
+  };
+
   const forceKickMember = async () => {
     if (!selectedRoomId || !kickUserId.trim()) {
       setRoomMsg('ルームと除外するユーザー ID を指定してください。');
       return;
     }
-    if (!window.confirm('選択したルームからこのユーザーを強制除外しますか？')) return;
+    setConfirmDialog({ type: 'force-kick', roomId: selectedRoomId, userId: kickUserId.trim() });
+  };
+
+  const loadSelectedRoomMembers = useCallback(async () => {
+    if (!selectedRoomId) {
+      setRoomMemberOptions([]);
+      return;
+    }
+    const res = await fetchWithAuth(`/rooms/${selectedRoomId}`);
+    if (!res.ok) {
+      setRoomMemberOptions([]);
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    const members = (data.members ?? []) as Array<{ user_id?: string; name?: string }>;
+    setRoomMemberOptions(
+      members
+        .map((m) => ({
+          id: String(m.user_id ?? ''),
+          name: String(m.name ?? ''),
+        }))
+        .filter((m) => m.id),
+    );
+  }, [selectedRoomId]);
+
+  const applyForceKickMember = async (roomId: string, userId: string) => {
     setRoomOpBusy(true);
     setRoomMsg(null);
     try {
-      const res = await fetchWithAuth(`/admin/rooms/${selectedRoomId}/members/${kickUserId.trim()}`, {
+      const res = await fetchWithAuth(`/admin/rooms/${roomId}/members/${userId}`, {
         method: 'DELETE',
       });
       if (res.status === 401) return;
@@ -268,6 +326,64 @@ export function AdminPage() {
       setRoomOpBusy(false);
     }
   };
+
+  const confirmTitle =
+    confirmDialog?.type === 'bulk-active'
+      ? confirmDialog.active
+        ? 'ユーザー有効化'
+        : 'ユーザーBAN'
+      : confirmDialog?.type === 'row-active'
+        ? confirmDialog.active
+          ? 'ユーザー有効化'
+          : 'ユーザーBAN'
+      : confirmDialog?.type === 'room-freeze'
+        ? confirmDialog.frozen
+          ? 'ルーム凍結'
+          : 'ルーム凍結解除'
+      : confirmDialog?.type === 'force-kick'
+        ? '強制退出'
+        : '';
+
+  const confirmMessage =
+    confirmDialog?.type === 'bulk-active'
+      ? confirmDialog.active
+        ? `${confirmDialog.ids.length} 名を有効化しますか？`
+        : `${confirmDialog.ids.length} 名を BAN（無効化）しますか？`
+      : confirmDialog?.type === 'row-active'
+        ? confirmDialog.active
+          ? `${confirmDialog.userLabel} を有効化しますか？`
+          : `${confirmDialog.userLabel} を BAN（無効化）しますか？`
+      : confirmDialog?.type === 'room-freeze'
+        ? confirmDialog.frozen
+          ? '選択したルームを凍結しますか？'
+          : '選択したルームの凍結を解除しますか？'
+      : confirmDialog?.type === 'force-kick'
+        ? '選択したルームからこのユーザーを強制退出させますか？'
+        : '';
+
+  const handleConfirmExecute = async () => {
+    if (!confirmDialog) return;
+    const action = confirmDialog;
+    setConfirmDialog(null);
+    if (action.type === 'bulk-active') {
+      await applyBulkSetActive(action.active, action.ids);
+      return;
+    }
+    if (action.type === 'row-active') {
+      await applySetUserActiveOne(action.userId, action.active);
+      return;
+    }
+    if (action.type === 'room-freeze') {
+      await applyRoomFreeze(action.roomId, action.frozen);
+      return;
+    }
+    await applyForceKickMember(action.roomId, action.userId);
+  };
+
+  useEffect(() => {
+    if (tab !== 'rooms') return;
+    void loadSelectedRoomMembers();
+  }, [tab, loadSelectedRoomMembers]);
 
   if (meError) {
     return (
@@ -309,13 +425,28 @@ export function AdminPage() {
         <p className="muted admin-intro">
           ユーザー一覧・検索・選択に基づく BAN（無効化）／有効化。ルームは一覧から選択して凍結・強制除外を行います。
         </p>
+        <div className="admin-toolbar">
+          <button type="button" className="pill-button danger-outline" onClick={handleLogout}>
+            ログアウト
+          </button>
+        </div>
 
         <div className="admin-tabs">
-          <button type="button" className={`pill-button${tab === 'users' ? ' active' : ''}`} onClick={() => setTab('users')}>
+          <button
+            type="button"
+            data-testid="admin-tab-users"
+            className={`pill-button${tab === 'users' ? ' active' : ''}`}
+            onClick={() => setTab('users')}
+          >
             ユーザー管理
           </button>
-          <button type="button" className={`pill-button${tab === 'rooms' ? ' active' : ''}`} onClick={() => setTab('rooms')}>
-            ルーム運用
+          <button
+            type="button"
+            data-testid="admin-tab-rooms"
+            className={`pill-button${tab === 'rooms' ? ' active' : ''}`}
+            onClick={() => setTab('rooms')}
+          >
+            ルーム
           </button>
         </div>
 
@@ -372,6 +503,7 @@ export function AdminPage() {
                             const on = e.target.checked;
                             const next: Record<string, boolean> = { ...selectedUserIds };
                             for (const u of users) {
+                              if (isAdminRole(u.role)) continue;
                               next[u.id] = on;
                             }
                             setSelectedUserIds(next);
@@ -387,9 +519,14 @@ export function AdminPage() {
                   </thead>
                   <tbody>
                     {users.map((u) => (
-                      <tr key={u.id}>
+                      <tr key={u.id} data-testid={`admin-user-row-${u.email}`}>
                         <td>
-                          <input type="checkbox" checked={Boolean(selectedUserIds[u.id])} onChange={() => toggleUserSelect(u.id)} />
+                          <input
+                            type="checkbox"
+                            checked={Boolean(selectedUserIds[u.id])}
+                            disabled={isAdminRole(u.role)}
+                            onChange={() => toggleUserSelect(u.id)}
+                          />
                         </td>
                         <td title={u.id}>{u.name}</td>
                         <td className="admin-td-email">{u.email}</td>
@@ -399,11 +536,22 @@ export function AdminPage() {
                         </td>
                         <td className="admin-td-actions">
                           {u.active ? (
-                            <button type="button" className="pill-button danger-outline" disabled={rowBusy === u.id} onClick={() => void setUserActiveOne(u.id, false)}>
+                            <button
+                              type="button"
+                              className="pill-button danger-outline"
+                              data-testid={`admin-ban-${u.id}`}
+                              disabled={rowBusy === u.id || isAdminRole(u.role)}
+                              onClick={() => void setUserActiveOne(u.id, false, `${u.name} (${u.email})`)}
+                            >
                               BAN
                             </button>
                           ) : (
-                            <button type="button" className="pill-button" disabled={rowBusy === u.id} onClick={() => void setUserActiveOne(u.id, true)}>
+                            <button
+                              type="button"
+                              className="pill-button"
+                              disabled={rowBusy === u.id}
+                              onClick={() => void setUserActiveOne(u.id, true, `${u.name} (${u.email})`)}
+                            >
                               有効化
                             </button>
                           )}
@@ -463,13 +611,13 @@ export function AdminPage() {
               {roomLoading ? (
                 <p className="muted">読み込み中…</p>
               ) : (
-                <table className="admin-table">
+                <table className="admin-table" data-testid="admin-room-table">
                   <thead>
                     <tr>
                       <th className="admin-th-radio">選択</th>
                       <th>種別</th>
                       <th>名前</th>
-                      <th>凍結</th>
+                      <th>凍結状態</th>
                       <th>更新</th>
                     </tr>
                   </thead>
@@ -483,7 +631,7 @@ export function AdminPage() {
                         <td className="admin-td-mono" title={r.id}>
                           {r.name?.trim() || r.id.slice(0, 8)}
                         </td>
-                        <td>{r.is_frozen ? 'はい' : 'いいえ'}</td>
+                        <td>{r.is_frozen ? '凍結中' : '通常'}</td>
                         <td className="admin-td-mono">{new Date(r.updated_at).toLocaleString()}</td>
                       </tr>
                     ))}
@@ -492,28 +640,28 @@ export function AdminPage() {
               )}
             </div>
             <div className="admin-room-actions">
-              <button type="button" className="pill-button danger-outline" disabled={roomOpBusy || !selectedRoomId} onClick={() => void applyRoomFreeze(true)}>
+              <button type="button" className="pill-button danger-outline" disabled={roomOpBusy || !selectedRoomId} onClick={() => askRoomFreeze(true)}>
                 選択ルームを凍結
               </button>
-              <button type="button" className="pill-button" disabled={roomOpBusy || !selectedRoomId} onClick={() => void applyRoomFreeze(false)}>
+              <button type="button" className="pill-button" disabled={roomOpBusy || !selectedRoomId} onClick={() => askRoomFreeze(false)}>
                 選択ルームの凍結を解除
               </button>
             </div>
             <div className="admin-force-row">
-              <label className="room-settings-label">強制除外（ルームは上で選択）</label>
+              <label className="room-settings-label">強制退出（ルームは上で選択）</label>
               <select className="room-create-input admin-select" value={kickUserId} onChange={(e) => setKickUserId(e.target.value)}>
                 <option value="">ユーザー一覧から選択…</option>
-                {users.map((u) => (
+                {(roomMemberOptions.length > 0 ? roomMemberOptions : users.map((u) => ({ id: u.id, name: u.name, email: u.email }))).map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.name} ({u.email})
+                    {u.name} {u.email ? `(${u.email})` : ''}
                   </option>
                 ))}
               </select>
               <button type="button" className="pill-button danger-outline" disabled={roomOpBusy || !selectedRoomId || !kickUserId} onClick={() => void forceKickMember()}>
-                強制除外
+                強制退出
               </button>
             </div>
-            <p className="muted admin-hint">ユーザー候補は「ユーザー管理」タブで最後に検索した一覧です。見つからない場合はユーザー側で検索してください。</p>
+            <p className="muted admin-hint">ユーザー候補は選択ルームのメンバーを優先表示し、取得できない場合はユーザー管理タブの一覧を使います。</p>
             <div className="admin-pager">
               <button type="button" className="pill-button" disabled={roomOffset === 0 || roomLoading} onClick={() => setRoomOffset((o) => Math.max(0, o - 100))}>
                 前へ
@@ -530,10 +678,33 @@ export function AdminPage() {
           </section>
         )}
 
-        <p className="auth-footer-link">
-          <Link to="/rooms">ルーム一覧へ</Link>
-        </p>
       </div>
+      {confirmDialog && (
+        <div className="modal-overlay" onClick={() => (!bulkBusy && !roomOpBusy ? setConfirmDialog(null) : null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3>{confirmTitle}</h3>
+            <p>{confirmMessage}</p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="pill-button"
+                disabled={bulkBusy || roomOpBusy}
+                onClick={() => setConfirmDialog(null)}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                className="pill-button danger-outline"
+                disabled={bulkBusy || roomOpBusy}
+                onClick={() => void handleConfirmExecute()}
+              >
+                実行
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

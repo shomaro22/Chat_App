@@ -9,11 +9,13 @@
 
 ### 手順
 
-1. **コンテナ起動**（このディレクトリで実行）
+1. **Postgres / Redis のコンテナ起動**（リポジトリ**ルート**で実行。compose ファイルはルートに1つだけ）
 
    ```bash
-   docker compose up -d
+   docker compose up -d postgres redis
    ```
+
+   API までコンテナで動かす場合はルートで `docker compose up -d`（フルスタック）。
 
    | サービス   | ホストからの接続例 |
    | ---------- | ------------------ |
@@ -49,12 +51,12 @@
 
 ### ローカル用テストアカウント
 
-Postgres が起動した状態で `go run ./cmd/seedtestuser` を実行する。同じメールが既にいればスキップされ、パスワードだけ既定に戻したいときは `-reset`。
+Postgres が起動した状態で `go run ./cmd/seed dev` を実行する。同じメールが既にいればスキップされ、パスワードだけ既定に戻したいときは `-reset`。
 
 ```bash
-go run ./cmd/seedtestuser                 # 1件だけ（既定 test@example.com）
-go run ./cmd/seedtestuser -team          # DM 用に複数（test + alice + bob）
-go run ./cmd/seedtestuser -team -reset   # 上記3件すべてパスワード等を上書き
+go run ./cmd/seed dev                    # 1件だけ（既定 test@example.com）
+go run ./cmd/seed dev -team              # 複数（test + alice + bob + admin）
+go run ./cmd/seed dev -team -reset       # 上記4件すべてパスワード等を上書き
 ```
 
 `-team` で作るアカウント（表示名は括弧内）。**パスワードは全員共通**（既定 `password123`、環境変数 `TEST_USER_PASSWORD` で変更可）。
@@ -64,6 +66,7 @@ go run ./cmd/seedtestuser -team -reset   # 上記3件すべてパスワード等
 | `test@example.com` | Test（`TEST_USER_NAME` で変更可） |
 | `alice@example.com` | Alice |
 | `bob@example.com` | Bob |
+| `admin@example.com` | Admin（role: `admin`） |
 
 1件だけのときは第1行のみ。`TEST_USER_EMAIL` で第1アカウントのメールを変えた場合、`alice` / `bob` はそのまま追加される（メールの重複は除く）。
 
@@ -73,7 +76,7 @@ go run ./cmd/seedtestuser -team -reset   # 上記3件すべてパスワード等
 
 `frontend` は既定で `VITE_API_ORIGIN=http://127.0.0.1:8080`（`.env.development`）により API と別ポートになる。**`DATABASE_URL` がローカル向けのときは CORS を自動で有効**にするので、まずは `CORS_ALLOW_ORIGINS` なしでよい。
 
-手順の例: `docker compose up -d` → `go run ./cmd/seedtestuser -team` → backend `go run .` → `frontend` で `npm run dev` → 別ブラウザ／シークレットで `alice` と `bob` にログインして DM を試す、など。
+手順の例: ルートで `docker compose up -d postgres redis` → `go run ./cmd/seed dev -team` → backend `go run .` → `frontend` で `npm run dev` → 別ブラウザ／シークレットで `alice` と `bob` にログインして DM を試す、など。
 
 ### 動作確認の目安
 

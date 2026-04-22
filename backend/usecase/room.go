@@ -26,10 +26,11 @@ type RoomUseCase struct {
 	Messages repository.MessageRepository
 	Reads    repository.MessageReadRepository
 	Online   UserOnlineLookup
+	Blocks   repository.UserBlockRepository
 }
 
 // NewRoomUseCase は RoomUseCase を組み立てる。Tx はルームとメンバーの一括書き込み用。Online は省略可。
-func NewRoomUseCase(tx repository.RoomUnitOfWork, users repository.UserRepository, rooms repository.RoomRepository, members repository.RoomMemberRepository, messages repository.MessageRepository, reads repository.MessageReadRepository, online UserOnlineLookup) *RoomUseCase {
+func NewRoomUseCase(tx repository.RoomUnitOfWork, users repository.UserRepository, rooms repository.RoomRepository, members repository.RoomMemberRepository, messages repository.MessageRepository, reads repository.MessageReadRepository, online UserOnlineLookup, blocks repository.UserBlockRepository) *RoomUseCase {
 	return &RoomUseCase{
 		Tx:       tx,
 		Users:    users,
@@ -38,6 +39,7 @@ func NewRoomUseCase(tx repository.RoomUnitOfWork, users repository.UserRepositor
 		Messages: messages,
 		Reads:    reads,
 		Online:   online,
+		Blocks:   blocks,
 	}
 }
 
@@ -345,16 +347,36 @@ func (useCase *RoomUseCase) GetJoinedRoomSummaries(ctx context.Context, userID u
 	for i := range lastMsgs {
 		lastByRoom[lastMsgs[i].RoomID] = lastMsgs[i]
 	}
+	blockedIDs := make([]uuid.UUID, 0)
+	blockedSet := make(map[uuid.UUID]struct{})
+	if useCase.Blocks != nil {
+		if ids, err := useCase.Blocks.ListBlockedUserIDs(ctx, userID); err == nil {
+			blockedIDs = ids
+			for i := range ids {
+				blockedSet[ids[i]] = struct{}{}
+			}
+		}
+	}
 	out := make([]JoinedRoomSummary, 0, len(rooms))
 	for i := range rooms {
 		r := rooms[i]
 		sum := JoinedRoomSummary{Room: r}
 		if lm, ok := lastByRoom[r.ID]; ok {
-			m := lm
-			sum.LastMessage = &m
-			sum.LastPreview = lastMessagePreview(&m)
-			if su, err := useCase.Users.FindByID(ctx, m.SenderID); err == nil && su != nil {
-				sum.LastMessageSenderName = &su.Name
+			if _, blocked := blockedSet[lm.SenderID]; !blocked {
+				m := lm
+				sum.LastMessage = &m
+				sum.LastPreview = lastMessagePreview(&m)
+				if su, err := useCase.Users.FindByID(ctx, m.SenderID); err == nil && su != nil {
+					sum.LastMessageSenderName = &su.Name
+				}
+			} else if useCase.Messages != nil {
+				if m, err := useCase.Messages.FindLatestVisibleInRoom(ctx, r.ID, blockedIDs); err == nil && m != nil {
+					sum.LastMessage = m
+					sum.LastPreview = lastMessagePreview(m)
+					if su, err := useCase.Users.FindByID(ctx, m.SenderID); err == nil && su != nil {
+						sum.LastMessageSenderName = &su.Name
+					}
+				}
 			}
 		}
 		readRow, err := useCase.Reads.FindByRoomAndUser(ctx, r.ID, userID)
@@ -365,7 +387,7 @@ func (useCase *RoomUseCase) GetJoinedRoomSummaries(ctx context.Context, userID u
 		if readRow != nil {
 			lastRead = readRow.LastReadMessageID
 		}
-		n, err := useCase.Messages.CountUnreadForViewer(ctx, r.ID, userID, lastRead)
+		n, err := useCase.Messages.CountUnreadForViewerExcludingSenders(ctx, r.ID, userID, lastRead, blockedIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -442,7 +464,13 @@ func (useCase *RoomUseCase) GetRoomDetail(ctx context.Context, roomID, requester
 		lastRead = readRow.LastReadMessageID
 		detail.MyLastReadMessageID = readRow.LastReadMessageID
 	}
-	unread, err := useCase.Messages.CountUnreadForViewer(ctx, roomID, requesterID, lastRead)
+	blockedIDs := make([]uuid.UUID, 0)
+	if useCase.Blocks != nil {
+		if ids, err := useCase.Blocks.ListBlockedUserIDs(ctx, requesterID); err == nil {
+			blockedIDs = ids
+		}
+	}
+	unread, err := useCase.Messages.CountUnreadForViewerExcludingSenders(ctx, roomID, requesterID, lastRead, blockedIDs)
 	if err != nil {
 		return nil, err
 	}

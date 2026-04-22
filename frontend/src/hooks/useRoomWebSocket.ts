@@ -1,4 +1,4 @@
-import { useEffect, useRef, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import { buildWsUrl } from '../lib/ws';
 import { getToken, setToken } from '../lib/token';
 import type { Message } from '../types/chat';
@@ -7,9 +7,11 @@ export type RoomWsHandlerBag = {
   onSessionReady: (userId: string) => void;
   onReloadData: () => void;
   onMessageCreated: (message: Message) => void;
+  onMessageUpdated: (message: Message) => void;
   onMessageDeleted: (messageId: string) => void;
   onReadUpdated: (userId: string, lastReadMessageId: string) => void;
   onPresenceUpdated: (userId: string, isOnline: boolean) => void;
+  onTyping?: (userId: string, isTyping: boolean) => void;
   onError: (message: string) => void;
   onSchemaMismatch: () => void;
   onForbiddenMember: () => void;
@@ -27,10 +29,27 @@ export function useRoomWebSocket(
   roomId: string | undefined,
   navigateToLogin: () => void,
   handlersRef: MutableRefObject<RoomWsHandlerBag>,
-) {
+): { sendTyping: (typing: boolean) => void } {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const shouldReconnectRef = useRef(true);
+
+  const sendTyping = useCallback(
+    (typing: boolean) => {
+      if (!roomId) return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(
+        JSON.stringify({
+          type: 'typing',
+          room_id: roomId,
+          is_typing: typing,
+          schema_version: 1,
+        }),
+      );
+    },
+    [roomId],
+  );
 
   useEffect(() => {
     if (!roomId) return;
@@ -51,7 +70,6 @@ export function useRoomWebSocket(
       ws.onopen = () => {
         handlersRef.current.onOpen();
         ws.send(JSON.stringify({ type: 'subscribe', room_id: roomId, schema_version: 1 }));
-        // 初回接続・再接続のいずれでも HTTP でメッセージ / 既読 / ルーム詳細を再取得し、切断中の取りこぼしを回復する
         handlersRef.current.onReloadData();
       };
 
@@ -63,6 +81,7 @@ export function useRoomWebSocket(
           message_id?: string;
           user_id?: string;
           is_online?: boolean;
+          is_typing?: boolean;
           last_read_message_id?: string;
           code?: string;
         };
@@ -93,6 +112,10 @@ export function useRoomWebSocket(
           handlersRef.current.onMessageCreated(payload.message);
         }
 
+        if (payload.type === 'message_updated' && payload.room_id === roomId && payload.message) {
+          handlersRef.current.onMessageUpdated(payload.message);
+        }
+
         if (payload.type === 'message_deleted' && payload.room_id === roomId && payload.message_id) {
           handlersRef.current.onMessageDeleted(payload.message_id);
         }
@@ -108,6 +131,15 @@ export function useRoomWebSocket(
 
         if (payload.type === 'presence_updated' && payload.user_id && typeof payload.is_online === 'boolean') {
           handlersRef.current.onPresenceUpdated(payload.user_id, payload.is_online);
+        }
+
+        if (
+          payload.type === 'typing' &&
+          payload.room_id === roomId &&
+          payload.user_id &&
+          typeof payload.is_typing === 'boolean'
+        ) {
+          handlersRef.current.onTyping?.(payload.user_id, payload.is_typing);
         }
       };
 
@@ -147,7 +179,8 @@ export function useRoomWebSocket(
       wsRef.current?.close();
       wsRef.current = null;
     };
-    // handlersRef は毎レンダーで .current を差し替えるため依存に含めない
     // eslint-disable-next-line react-hooks/exhaustive-deps -- roomId / ログイン遷移のみで再接続する
   }, [roomId, navigateToLogin]);
+
+  return { sendTyping };
 }

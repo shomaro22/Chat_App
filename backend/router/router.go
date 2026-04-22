@@ -17,6 +17,7 @@ type Config struct {
 	Reads             *controller.MessageReadController
 	WS                *controller.WSController
 	Media             *controller.MediaController
+	Social            *controller.SocialController
 	Admin             *controller.AdminController
 	ParseJWT          middleware.TokenParser
 	ValidateSession   middleware.SessionValidator // nil 可（JWT のみ検証）
@@ -55,6 +56,9 @@ func New(cfg Config) *echo.Echo {
 		} else {
 			e.POST("/auth/register", cfg.Auth.Register)
 		}
+		e.POST("/auth/forgot-password", cfg.Auth.ForgotPassword)
+		e.POST("/auth/reset-password", cfg.Auth.ResetPassword)
+		e.POST("/auth/verify-email", cfg.Auth.VerifyEmail)
 	}
 
 	jwt := middleware.JWTAuth(cfg.ParseJWT, cfg.ValidateSession)
@@ -66,6 +70,8 @@ func New(cfg Config) *echo.Echo {
 	}
 	if cfg.Auth != nil {
 		api.GET("/me", cfg.Auth.Me)
+		api.PATCH("/me", cfg.Auth.PatchMe)
+		api.POST("/me/change-password", cfg.Auth.ChangePassword)
 	}
 	if cfg.Room != nil {
 		api.GET("/rooms", cfg.Room.ListJoinedRooms)
@@ -78,9 +84,11 @@ func New(cfg Config) *echo.Echo {
 		api.DELETE("/rooms/:id/members/:userId", cfg.Room.RemoveRoomMember)
 	}
 	if cfg.Messages != nil {
+		api.PATCH("/rooms/:id/messages/:messageId", cfg.Messages.PatchMessage)
 		api.POST("/rooms/:id/messages", cfg.Messages.CreateMessage)
 		api.GET("/rooms/:id/messages", cfg.Messages.ListMessages)
 		api.DELETE("/messages/:id", cfg.Messages.DeleteMessage)
+		api.GET("/search/messages", cfg.Messages.SearchMessages)
 	}
 	if cfg.Reads != nil {
 		api.GET("/rooms/:id/read-state", cfg.Reads.GetRoomReadState)
@@ -88,14 +96,29 @@ func New(cfg Config) *echo.Echo {
 	}
 	if cfg.Media != nil {
 		api.POST("/media/images", cfg.Media.UploadImage)
+		api.POST("/media/files", cfg.Media.UploadFile)
+	}
+	if cfg.Social != nil {
+		api.POST("/rooms/:id/messages/:messageId/reactions", cfg.Social.PostReaction)
+		api.DELETE("/rooms/:id/messages/:messageId/reactions", cfg.Social.DeleteReaction)
+		api.GET("/rooms/:id/messages/:messageId/reactions", cfg.Social.ListReactions)
+		api.POST("/rooms/:id/pin", cfg.Social.PostPin)
+		api.DELETE("/rooms/:id/pin", cfg.Social.DeletePin)
+		api.GET("/rooms/:id/pin", cfg.Social.GetPin)
+		api.POST("/messages/:id/bookmark", cfg.Social.PostBookmark)
+		api.DELETE("/messages/:id/bookmark", cfg.Social.DeleteBookmark)
+		api.GET("/me/bookmarks", cfg.Social.ListBookmarks)
+		api.POST("/users/:id/block", cfg.Social.PostBlockUser)
+		api.DELETE("/users/:id/block", cfg.Social.DeleteBlockUser)
+		api.GET("/users/:id/block", cfg.Social.GetBlockUser)
 	}
 	if cfg.WS != nil {
 		api.GET("/ws", cfg.WS.Handle)
 	}
 
+	// /admin/* は JWT 済み api グループ配下（トークン検証・セッション確認を他 API と同じにする）
 	if cfg.Admin != nil {
-		ad := e.Group("/admin")
-		ad.Use(jwt)
+		ad := api.Group("/admin")
 		ad.Use(middleware.RequireAdmin())
 		ad.GET("/users", cfg.Admin.ListUsers)
 		ad.GET("/rooms", cfg.Admin.ListRooms)

@@ -38,11 +38,13 @@ const (
 	APICodeForbiddenKick           = "FORBIDDEN_KICK"
 	APICodeForbiddenRoomUpdate     = "FORBIDDEN_ROOM_UPDATE"
 	APICodeAlreadyMember           = "ALREADY_MEMBER"
+	APICodeCannotBanAdmin          = "CANNOT_BAN_ADMIN"
 	APICodeUnsupportedMedia        = "UNSUPPORTED_MEDIA"
 	APICodeUploadTooLarge          = "UPLOAD_TOO_LARGE"
 	APICodeInternal                = "INTERNAL_ERROR"
 	APICodeForbiddenAdmin          = "FORBIDDEN_ADMIN"
 	APICodeRateLimited             = "RATE_LIMITED"
+	APICodeCannotBlockSelf         = "CANNOT_BLOCK_SELF"
 )
 
 // mapDomainError maps chat domain errors to JSON: error message + optional stable code.
@@ -114,6 +116,8 @@ func domainErrHTTP(err error) (status int, apiCode string, msg string) {
 		return http.StatusForbidden, APICodeForbiddenKick, err.Error()
 	case errors.Is(err, usecase.ErrForbiddenRoomUpdate):
 		return http.StatusForbidden, APICodeForbiddenRoomUpdate, err.Error()
+	case errors.Is(err, usecase.ErrCannotBanAdmin):
+		return http.StatusBadRequest, APICodeCannotBanAdmin, err.Error()
 
 	case errors.Is(err, usecase.ErrAlreadyMember):
 		return http.StatusConflict, APICodeAlreadyMember, err.Error()
@@ -122,6 +126,19 @@ func domainErrHTTP(err error) (status int, apiCode string, msg string) {
 		return http.StatusUnsupportedMediaType, APICodeUnsupportedMedia, err.Error()
 	case errors.Is(err, usecase.ErrUploadTooLarge):
 		return http.StatusRequestEntityTooLarge, APICodeUploadTooLarge, err.Error()
+
+	case errors.Is(err, usecase.ErrInvalidSearchQuery):
+		return http.StatusBadRequest, "INVALID_SEARCH_QUERY", err.Error()
+	case errors.Is(err, usecase.ErrInvalidEmoji):
+		return http.StatusBadRequest, "INVALID_EMOJI", err.Error()
+	case errors.Is(err, usecase.ErrCannotBlockSelf):
+		return http.StatusBadRequest, APICodeCannotBlockSelf, err.Error()
+	case errors.Is(err, usecase.ErrInvalidToken):
+		return http.StatusBadRequest, "INVALID_TOKEN", err.Error()
+	case errors.Is(err, usecase.ErrWrongPassword):
+		return http.StatusUnauthorized, "WRONG_PASSWORD", err.Error()
+	case errors.Is(err, usecase.ErrEmailNotVerified):
+		return http.StatusForbidden, "EMAIL_NOT_VERIFIED", err.Error()
 
 	default:
 		return http.StatusInternalServerError, APICodeInternal, "internal server error"

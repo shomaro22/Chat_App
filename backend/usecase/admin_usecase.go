@@ -57,6 +57,18 @@ func (a *AdminUseCase) SetUserActive(ctx context.Context, adminID, targetUserID 
 	if targetUserID == uuid.Nil {
 		return ErrInvalidUserID
 	}
+	if !active {
+		target, err := a.Users.FindByID(ctx, targetUserID)
+		if err != nil {
+			return err
+		}
+		if target == nil {
+			return ErrUserNotFound
+		}
+		if auth.IsAdmin(target.Role) {
+			return ErrCannotBanAdmin
+		}
+	}
 	return a.Users.SetActive(ctx, targetUserID, active)
 }
 

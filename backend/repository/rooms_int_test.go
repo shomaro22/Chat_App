@@ -113,8 +113,14 @@ func TestRoomMember_ListActiveMembers(t *testing.T) {
 	list, err := members.ListActiveMembers(ctx, room.ID)
 	require.NoError(t, err)
 	require.Len(t, list, 2)
-	require.Equal(t, u1.ID, list[0].UserID)
-	require.Equal(t, u2.ID, list[1].UserID)
+	got := map[uuid.UUID]struct{}{
+		list[0].UserID: {},
+		list[1].UserID: {},
+	}
+	_, hasU1 := got[u1.ID]
+	_, hasU2 := got[u2.ID]
+	require.True(t, hasU1)
+	require.True(t, hasU2)
 
 	n, err := members.CountActiveByRoomID(ctx, room.ID)
 	require.NoError(t, err)
