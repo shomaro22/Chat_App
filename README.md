@@ -1,94 +1,219 @@
-# Chat_App
+# リアルタイムチャットアプリ
 
-## 起動方法（バックエンド）
+## 概要
 
-1. **依存**: [Go](https://go.dev/dl/)（`backend/go.mod` のバージョン）、[Docker](https://docs.docker.com/get-docker/)（Postgres / Redis 用）
+本アプリケーションは、1対1チャット / グループチャット / 既読 / リアクション / ルーム管理を一貫して扱うリアルタイムチャットシステムです。
 
-2. **DB と Redis を起動**（リポジトリ**ルート**の `docker-compose.yml` のみ使用）
+主な特徴:
 
-   ```bash
-   docker compose up -d postgres redis
-   ```
+- 1対1ルーム・グループルームの作成
+- WebSocket によるリアルタイムメッセージ配信
+- 既読管理（既読更新・既読数表示）
+- リアクション・ブックマーク・ピン留め
+- 管理者機能（凍結・強制退出など）
+- Rate Limit / 権限分離によるセキュリティ対策
 
-   Postgres（`localhost:5432`）と Redis（`localhost:6379`）が立ち上がります。API 〜 フロントまでコンテナで動かす場合は `docker compose up -d`。
+## 想定ユーザー
 
-3. **バックエンドディレクトリへ移動**（以降の手順は `backend` で実行）
+- 一般ユーザー（チャット利用）
+- 管理者（ユーザー・ルームの管理）
 
-   ```bash
-   cd backend
-   ```
+## 主なフロー
 
-4. **環境変数**
+1. ユーザーがログイン
+2. ルームに参加 / 作成
+3. メッセージ送信（画像・ファイル添付含む）
+4. 既読・リアクション・ブックマークを操作
+5. 必要に応じて管理者がルームやユーザーを制御
 
-   ```bash
-   cp .env.example .env
-   ```
+## 技術スタック
 
-   - **`DATABASE_URL`**: 上記 compose のままなら `.env.example` の値でよい
-   - **`REDIS_ADDR`**: ホストで `go run .` する場合は `localhost:6379`。空にすると Redis レート制限は無効（スキップ）
-   - **`JWT_SECRET`**: 本番では 32 文字以上を設定（未設定時は開発用の弱い既定値）
+### Backend
 
-5. **API サーバー起動**
+- Go (Echo)
+- PostgreSQL
+- Redis
+- GORM
 
-   **`backend` をカレントディレクトリにしたまま** `go run .` すると、同じディレクトリに `.env` があれば起動時に読み込みます（`github.com/joho/godotenv`）。すでにシェルや IDE で入っている環境変数は上書きしません。
+### Frontend
 
-   ```bash
-   go run .
-   ```
+- React
+- TypeScript
+- Vite
 
-   既定は `http://localhost:8080`（`PORT` で変更可）。`DATABASE_URL` 未設定時は compose 用のローカル Postgres URL がコード側の既定で使われます。レート制限を有効にするには `.env` に `REDIS_ADDR=127.0.0.1:6379`（など）を書き、ログに `redis rate limit: connected` が出ることを確認してください。
+### その他
 
-## フロント E2E（Playwright）
+- Docker / Docker Compose
+- Playwright（E2E）
+- k6（負荷試験）
+- GitHub Actions（CI）
 
-前提: 上記どおり **Postgres が起動**していること（`DATABASE_URL` は既定で `localhost:5432` の `chatapp` を参照）。
+## アーキテクチャ
+
+バックエンドはレイヤ分離を意識した構成です。
+
+- `entity`
+- `usecase`
+- `repository`
+- `controller`
+
+## 起動（全体）
+
+```bash
+docker compose up -d
+```
+
+DB・Redis・バックエンド・フロントエンドを一括起動します。
+
+- フロントエンド: `http://localhost`
+- バックエンド API: `http://localhost:8080`
+- PostgreSQL: `localhost:5432`
+- Redis: `localhost:6379`
+
+## バックエンド起動（個別）
+
+```bash
+docker compose up -d postgres redis
+cd backend
+cp .env.example .env
+go run .
+```
+
+主な環境変数（`backend/.env.example`）:
+
+- `DATABASE_URL`: `postgres://postgres:postgres@localhost:5432/chatapp?sslmode=disable`
+- `REDIS_ADDR`: `localhost:6379`（空にするとRedisレート制限は無効）
+- `JWT_SECRET`: 任意
+
+## フロントエンド起動（個別）
 
 ```bash
 cd frontend
 npm ci
+npm run dev
+```
+
+開発サーバー: `http://localhost:5173`
+
+## テストアカウント作成（seed）
+
+`backend` の seed コマンドでテストアカウントを作成できます。
+
+### E2E用（Playwright）
+
+```bash
+cd backend
+go run ./cmd/seed e2e
+```
+
+作成（または更新）されるアカウント:
+
+- 管理者: `e2e-admin@chat.test`
+- 一般ユーザー: `e2e-bob@chat.test`
+- パスワード（共通）: `E2ePassw0rd!`
+
+### ローカル開発用（1件）
+
+```bash
+cd backend
+go run ./cmd/seed dev
+```
+
+既定値:
+
+- メール: `test@example.com`
+- 名前: `Test`
+- パスワード: `password123`
+
+### ローカル開発用（複数）
+
+```bash
+cd backend
+go run ./cmd/seed dev -team
+```
+
+追加されるユーザー:
+
+- `alice@example.com`（user）
+- `bob@example.com`（user）
+- `admin@example.com`（admin）
+
+`-reset` を付けると既存ユーザーの名前・ロール・パスワードを更新します。
+
+## テスト
+
+以下のテストを実施可能です。
+
+- 静的解析（frontend lint / `go vet`）
+- 単体・結合テスト（Go）
+- E2Eテスト（Playwright）
+- API負荷試験（k6）
+
+### Backend テスト
+
+```bash
+cd backend
+go test ./...
+```
+
+### Frontend lint / build
+
+```bash
+cd frontend
+npm ci
+npm run lint
+npm run build
+```
+
+### E2E（Playwright）
+
+```bash
+cd frontend
 npx playwright install chromium
 npm run test:e2e
 ```
 
-- テスト実行前に `go run ./cmd/seed e2e`（`global-setup` から自動）で `e2e-admin@chat.test` / `e2e-bob@chat.test` を用意します。終了時に再度シードして BAN 状態を戻します。
-- API はホストの **:8080 ではなく :18080** で起動し（`E2E_API_PORT` で変更可）、既存の `go run .` とポートがぶつからないようにしています。
-- `SKIP_E2E_SEED=1` を付けると DB シードのみスキップします（自分でユーザーを用意する場合）。
+補足:
 
-## k6（API 負荷）
+- `global-setup` から `go run ./cmd/seed e2e` が実行され、E2E用データを投入します。
+- E2EのAPIポートは既定で `:18080`（通常の `:8080` と衝突回避）。
 
-リリース前・CI で **必ず**通す想定の **単一シナリオ**（`k6/scenarios/spec_api.js`）。`/health`・登録・グループ・`/me`・`/rooms`・メッセージ・既読をまとめて叩きます。DB シードは不要です。
+### k6
 
-1. Postgres（＋任意で Redis）と API を起動する（上記「起動方法」）。
-2. リポジトリ**ルート**で [k6](https://grafana.com/docs/k6/latest/) を使う:
+ローカルに `k6` バイナリが無い場合は、以下の Docker コマンドで実行します。
 
-   **k6 本体がある場合**
-
-   ```bash
-   k6 run k6/scenarios/spec_api.js
-   ```
-
-   **Docker のみの場合**（API がホストの `8080` のとき。Mac の Docker Desktop では `K6_API_BASE_URL=http://host.docker.internal:8080` が必要なことがあります）
-
-   ```bash
-   docker run --rm -i --network=host \
-     -e K6_API_BASE_URL="${K6_API_BASE_URL:-http://127.0.0.1:8080}" \
-     -e K6_VUS="${K6_VUS:-4}" \
-     -e K6_DURATION="${K6_DURATION:-35s}" \
-     -v "$(pwd)/k6:/k6:ro" \
-     grafana/k6:0.55.0 run /k6/scenarios/spec_api.js
-   ```
-
-環境変数の一覧は [k6/README.md](k6/README.md) に書いています。
+```bash
+docker run --rm -i --network=host \
+  -e K6_API_BASE_URL="${K6_API_BASE_URL:-http://127.0.0.1:8080}" \
+  -e K6_VUS="${K6_VUS:-4}" \
+  -e K6_DURATION="${K6_DURATION:-35s}" \
+  -v "$(pwd)/k6:/k6:ro" \
+  grafana/k6:0.55.0 run /k6/scenarios/spec_api.js
+```
 
 ## CI（GitHub Actions）
 
-[.github/workflows/ci.yml](.github/workflows/ci.yml) で次を順に実行します。
+`.github/workflows/ci.yml` で主に以下を実行します。
 
-- `go vet` とバックエンド単体テスト（短縮モード）
-- Postgres 上の **integration** テスト（`//go:build integration` 含む）
-- フロントの **lint / build**
-- **Playwright E2E**（DB シード込み）
-- **k6**（`spec_api.js` のみ）
+- backend: `go vet` / test
+- frontend: lint / build
+- Playwright E2E
+- k6 シナリオ
 
-ローカルで近いことをする場合は、Postgres を起動したうえで `backend` / `frontend` の各コマンドと、上記 **k6** のコマンドを実行してください。
+## API / 仕様
 
-詳細・トラブル時の確認は [backend/README.md](backend/README.md) を参照。
+- OpenAPI定義: [openapi.yaml](openapi.yaml)
+
+## 提出物としての補足
+
+本リポジトリは実運用ではなく成果物提出を目的に整備しています。  
+そのため、運用監視よりも次を重視しています。
+
+- 再現可能な起動手順
+- 再現可能なテスト手順
+- 仕様と実装の整合
+
+## 注意点
+
+- プロトコル文字列（例: `SCHEMA_VERSION_MISMATCH`）やJSONキー（例: `my_last_read_message_id`）は互換性のため固定しています。
+- コマンドは実行ディレクトリ（ルート / `backend` / `frontend`）を正しく選んで実行してください。
