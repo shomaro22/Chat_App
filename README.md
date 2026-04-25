@@ -75,6 +75,7 @@ docker compose up -d
 ```
 
 DB・Redis・バックエンド・フロントエンドを一括起動します。
+（コンテナビルドはルート直下の `Dockerfile` を共通利用）
 
 - フロントエンド: `http://localhost`
 - バックエンド API: `http://localhost:8080`
