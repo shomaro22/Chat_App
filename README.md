@@ -57,6 +57,17 @@
 - `repository`
 - `controller`
 
+## デプロイ先
+
+- Frontend (Vercel): `https://chat-app-xi-ashen-92.vercel.app`
+- Backend API (Render): `https://chat-app-zr9i.onrender.com`
+- Health Check: `https://chat-app-zr9i.onrender.com/health`
+
+補足:
+
+- Vercel の環境変数: `VITE_API_ORIGIN=https://chat-app-zr9i.onrender.com`
+- Render の環境変数: `CORS_ALLOW_ORIGINS=https://chat-app-xi-ashen-92.vercel.app`
+
 ## 起動（全体）
 
 ```bash
@@ -199,6 +210,10 @@ docker run --rm -i --network=host \
 - frontend: lint / build
 - Playwright E2E
 - k6 シナリオ
+
+補足:
+
+- Integration テストは `repository` / `usecase` / `e2e` を分離し、各パッケージで専用DBを使って干渉を回避しています。
 
 ## API / 仕様
 
