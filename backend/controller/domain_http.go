@@ -9,7 +9,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// Stable API error codes for clients (REST). Pair with HTTP status.
+// クライアント向け（REST）の固定 API エラーコード。HTTP ステータスと組み合わせて使う。
 const (
 	APICodeInvalidUserID           = "INVALID_USER_ID"
 	APICodeInvalidCreatorID        = "INVALID_CREATOR_ID"
@@ -47,7 +47,7 @@ const (
 	APICodeCannotBlockSelf         = "CANNOT_BLOCK_SELF"
 )
 
-// mapDomainError maps chat domain errors to JSON: error message + optional stable code.
+// mapDomainError はチャットドメインのエラーを、JSON（error メッセージ + 必要に応じて固定 code）へ変換する。
 func mapDomainError(c echo.Context, err error) error {
 	status, code, msg := domainErrHTTP(err)
 	body := map[string]string{"error": msg}

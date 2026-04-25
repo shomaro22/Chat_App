@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// RoomUseCase はルーム系ユースケース
 type RoomUseCase interface {
 	GetJoinedRooms(ctx context.Context, userID uuid.UUID) ([]entity.Room, error)
 	GetJoinedRoomSummaries(ctx context.Context, userID uuid.UUID, limit, offset int, updatedDesc bool) ([]JoinedRoomSummary, error)
