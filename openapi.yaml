@@ -17,6 +17,7 @@ tags:
   - name: Messages
   - name: Reads
   - name: Media
+  - name: Social
   - name: WebSocket
   - name: Admin
 
@@ -124,6 +125,93 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorOnlyResponse"
 
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request password reset mail
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordRequest"
+      responses:
+        "200":
+          description: Accepted (always returns 200 for privacy)
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Reset password by token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: Password reset completed
+        "400":
+          description: Invalid request or token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+
+  /auth/verify-email:
+    post:
+      tags: [Auth]
+      summary: Verify email by token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyEmailRequest"
+      responses:
+        "200":
+          description: Verified
+        "400":
+          description: Invalid request or token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+
   /me:
     get:
       tags: [Auth]
@@ -143,6 +231,43 @@ paths:
                 $ref: "#/components/schemas/ErrorOnlyResponse"
         "403":
           description: User inactive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+  /me/change-password:
+    post:
+      tags: [Auth]
+      summary: Change current user password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Changed
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized or wrong current password
           content:
             application/json:
               schema:
@@ -594,6 +719,57 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+
+  /rooms/{id}/messages/{messageId}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - $ref: "#/components/parameters/MessageId"
+    patch:
+      tags: [Messages]
+      summary: Edit message content
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchMessageRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateMessageResponse"
+        "400":
+          description: Invalid path/body or message not in room
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "403":
+          description: Forbidden or room frozen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Room or message not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     post:
       tags: [Messages]
       summary: Create message
@@ -701,6 +877,46 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /search/messages:
+    get:
+      tags: [Messages]
+      summary: Search messages in joined rooms
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Search result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchMessagesResponse"
+        "400":
+          description: Invalid query parameter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
         "500":
           description: Internal server error
           content:
@@ -848,6 +1064,489 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /media/files:
+    post:
+      tags: [Media]
+      summary: Upload generic file
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/UploadImageRequest"
+      responses:
+        "201":
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadFileResponse"
+        "400":
+          description: Missing file or invalid upload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "413":
+          description: Upload too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Unsupported media type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /rooms/{id}/messages/{messageId}/reactions:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - $ref: "#/components/parameters/MessageId"
+    get:
+      tags: [Social]
+      summary: List reactions
+      responses:
+        "200":
+          description: Reactions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListReactionsResponse"
+        "400":
+          description: Invalid room id or message id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "403":
+          description: Not room member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Room or message not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Social]
+      summary: Add reaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReactionRequest"
+      responses:
+        "204":
+          description: Added
+        "400":
+          description: Invalid room id/message id/body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "403":
+          description: Not room member or room frozen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Room or message not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [Social]
+      summary: Remove reaction
+      parameters:
+        - in: query
+          name: emoji
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Removed
+        "400":
+          description: Invalid room id/message id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "403":
+          description: Not room member or room frozen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Room or message not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /rooms/{id}/pin:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [Social]
+      summary: Get room pin
+      responses:
+        "200":
+          description: Current pin (or null)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetPinResponse"
+        "400":
+          description: Invalid room id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "403":
+          description: Not room member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Room not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Social]
+      summary: Set room pin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PinRequest"
+      responses:
+        "204":
+          description: Pinned
+        "400":
+          description: Invalid room id or body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "403":
+          description: Not room member or room frozen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Room or message not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [Social]
+      summary: Clear room pin
+      responses:
+        "204":
+          description: Cleared
+        "400":
+          description: Invalid room id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "403":
+          description: Not room member or room frozen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Room not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /messages/{id}/bookmark:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [Social]
+      summary: Add bookmark
+      responses:
+        "204":
+          description: Added
+        "400":
+          description: Invalid message id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "403":
+          description: Not allowed by room policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Message not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [Social]
+      summary: Remove bookmark
+      responses:
+        "204":
+          description: Removed
+        "400":
+          description: Invalid message id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /me/bookmarks:
+    get:
+      tags: [Social]
+      summary: List my bookmarks
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 0
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Bookmark list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListBookmarksResponse"
+        "400":
+          description: Invalid query
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/{id}/block:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [Social]
+      summary: Get block state
+      responses:
+        "200":
+          description: Block state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockStateResponse"
+        "400":
+          description: Invalid user id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Social]
+      summary: Block user
+      responses:
+        "204":
+          description: Blocked
+        "400":
+          description: Invalid user id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [Social]
+      summary: Unblock user
+      responses:
+        "204":
+          description: Unblocked
+        "400":
+          description: Invalid user id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /ws:
     get:
       tags: [WebSocket]
@@ -909,14 +1608,17 @@ paths:
             - $ref: "#/components/schemas/WSSubscribeMessage"
             - $ref: "#/components/schemas/WSUnsubscribeMessage"
             - $ref: "#/components/schemas/WSPingMessage"
+            - $ref: "#/components/schemas/WSTypingMessage"
         server:
           oneOf:
             - $ref: "#/components/schemas/WSSessionReadyEvent"
             - $ref: "#/components/schemas/WSRoomAckEvent"
             - $ref: "#/components/schemas/WSMessageCreatedEvent"
+            - $ref: "#/components/schemas/WSMessageUpdatedEvent"
             - $ref: "#/components/schemas/WSMessageDeletedEvent"
             - $ref: "#/components/schemas/WSReadUpdatedEvent"
             - $ref: "#/components/schemas/WSPresenceUpdatedEvent"
+            - $ref: "#/components/schemas/WSTypingEvent"
             - $ref: "#/components/schemas/WSPongEvent"
             - $ref: "#/components/schemas/WSErrorEvent"
 
@@ -955,6 +1657,102 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: List users (admin)
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserListResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "403":
+          description: Admin only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/rooms:
+    get:
+      tags: [Admin]
+      summary: List rooms (admin)
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Room list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminRoomListResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorOnlyResponse"
+        "403":
+          description: Admin only
           content:
             application/json:
               schema:
@@ -1079,6 +1877,13 @@ components:
       schema:
         type: string
         format: uuid
+    MessageId:
+      in: path
+      name: messageId
+      required: true
+      schema:
+        type: string
+        format: uuid
 
   schemas:
     ErrorOnlyResponse:
@@ -1128,7 +1933,7 @@ components:
 
     UserPublic:
       type: object
-      required: [id, name, email, role, active, created_at, updated_at]
+      required: [id, name, email, role, active, email_verified, created_at, updated_at]
       properties:
         id:
           type: string
@@ -1142,6 +1947,8 @@ components:
           type: string
         active:
           type: boolean
+        email_verified:
+          type: boolean
         created_at:
           type: string
         updated_at:
@@ -1149,11 +1956,46 @@ components:
 
     RegisterResponse:
       type: object
-      required: [user, access_token]
+      required: [user]
       properties:
         user:
           $ref: "#/components/schemas/UserPublic"
         access_token:
+          type: string
+        verification_required:
+          type: boolean
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, new_password]
+      properties:
+        token:
+          type: string
+        new_password:
+          type: string
+
+    VerifyEmailRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+        new_password:
           type: string
 
     MeResponse:
@@ -1322,7 +2164,7 @@ components:
 
     Message:
       type: object
-      required: [id, room_id, sender_id, is_deleted, created_at]
+      required: [id, room_id, sender_id, is_deleted, created_at, updated_at]
       properties:
         id:
           type: string
@@ -1333,10 +2175,23 @@ components:
         sender_id:
           type: string
           format: uuid
+        parent_message_id:
+          type: string
+          format: uuid
+          nullable: true
         content:
           type: string
           nullable: true
         image_url:
+          type: string
+          nullable: true
+        file_url:
+          type: string
+          nullable: true
+        file_name:
+          type: string
+          nullable: true
+        file_content_type:
           type: string
           nullable: true
         is_deleted:
@@ -1345,6 +2200,8 @@ components:
           type: string
           nullable: true
         created_at:
+          type: string
+        updated_at:
           type: string
 
     ListedMessage:
@@ -1369,6 +2226,26 @@ components:
         image_url:
           type: string
           nullable: true
+        file_url:
+          type: string
+          nullable: true
+        file_name:
+          type: string
+          nullable: true
+        file_content_type:
+          type: string
+          nullable: true
+        parent_message_id:
+          type: string
+          format: uuid
+          nullable: true
+
+    PatchMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
 
     CreateMessageMultipartRequest:
       type: object
@@ -1461,6 +2338,175 @@ components:
         url:
           type: string
 
+    UploadFileResponse:
+      type: object
+      required: [url, filename, content_type]
+      properties:
+        url:
+          type: string
+        filename:
+          type: string
+        content_type:
+          type: string
+
+    ReactionRequest:
+      type: object
+      required: [emoji]
+      properties:
+        emoji:
+          type: string
+
+    Reaction:
+      type: object
+      required: [user_id, emoji, created_at]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        emoji:
+          type: string
+        created_at:
+          type: string
+
+    ListReactionsResponse:
+      type: object
+      required: [reactions]
+      properties:
+        reactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Reaction"
+
+    PinRequest:
+      type: object
+      required: [message_id]
+      properties:
+        message_id:
+          type: string
+          format: uuid
+
+    Pin:
+      type: object
+      required: [room_id, message_id, pinned_by, pinned_at]
+      properties:
+        room_id:
+          type: string
+          format: uuid
+        message_id:
+          type: string
+          format: uuid
+        pinned_by:
+          type: string
+          format: uuid
+        pinned_at:
+          type: string
+
+    GetPinResponse:
+      type: object
+      required: [pin]
+      properties:
+        pin:
+          allOf:
+            - $ref: "#/components/schemas/Pin"
+          nullable: true
+
+    Bookmark:
+      type: object
+      required: [room_id, message_id, created_at, message]
+      properties:
+        room_id:
+          type: string
+          format: uuid
+        message_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+        message:
+          $ref: "#/components/schemas/Message"
+
+    ListBookmarksResponse:
+      type: object
+      required: [bookmarks, total]
+      properties:
+        bookmarks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Bookmark"
+        total:
+          type: integer
+          format: int64
+
+    BlockStateResponse:
+      type: object
+      required: [user_id, blocked]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        blocked:
+          type: boolean
+
+    SearchMessagesResponse:
+      type: object
+      required: [messages, count]
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ListedMessage"
+        count:
+          type: integer
+
+    AdminUserListResponse:
+      type: object
+      required: [users, total, limit, offset]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserPublic"
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    AdminRoomListItem:
+      type: object
+      required: [id, type, is_frozen, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        name:
+          type: string
+          nullable: true
+        is_frozen:
+          type: boolean
+        updated_at:
+          type: string
+
+    AdminRoomListResponse:
+      type: object
+      required: [rooms, total, limit, offset]
+      properties:
+        rooms:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminRoomListItem"
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+        offset:
+          type: integer
+
     SetUserActiveRequest:
       type: object
       required: [active]
@@ -1520,6 +2566,21 @@ components:
               type: string
               enum: [ping]
 
+    WSTypingMessage:
+      allOf:
+        - $ref: "#/components/schemas/WSClientBase"
+        - type: object
+          required: [type, room_id, is_typing]
+          properties:
+            type:
+              type: string
+              enum: [typing]
+            room_id:
+              type: string
+              format: uuid
+            is_typing:
+              type: boolean
+
     WSSessionReadyEvent:
       type: object
       required: [type, schema_version, user_id]
@@ -1555,6 +2616,22 @@ components:
         type:
           type: string
           enum: [message_created]
+        schema_version:
+          type: integer
+          enum: [1]
+        room_id:
+          type: string
+          format: uuid
+        message:
+          $ref: "#/components/schemas/Message"
+
+    WSMessageUpdatedEvent:
+      type: object
+      required: [type, schema_version, room_id, message]
+      properties:
+        type:
+          type: string
+          enum: [message_updated]
         schema_version:
           type: integer
           enum: [1]
@@ -1615,6 +2692,25 @@ components:
           type: string
           format: uuid
         is_online:
+          type: boolean
+
+    WSTypingEvent:
+      type: object
+      required: [type, schema_version, room_id, user_id, is_typing]
+      properties:
+        type:
+          type: string
+          enum: [typing]
+        schema_version:
+          type: integer
+          enum: [1]
+        room_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        is_typing:
           type: boolean
 
     WSPongEvent:
