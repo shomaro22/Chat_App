@@ -55,11 +55,28 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - name: Integration tests (DB + //go:build integration)
+      - name: Prepare dedicated databases for integration packages
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d postgres -c "CREATE DATABASE chatapp_repo_int;"
+          psql -h localhost -U postgres -d postgres -c "CREATE DATABASE chatapp_usecase_int;"
+          psql -h localhost -U postgres -d postgres -c "CREATE DATABASE chatapp_e2e_int;"
+      - name: Repository integration tests
         working-directory: backend
         env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/chatapp?sslmode=disable
-        run: go test -tags=integration ./... -count=1 -timeout 20m
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/chatapp_repo_int?sslmode=disable
+        run: go test -tags=integration ./repository -count=1 -timeout 20m
+      - name: Usecase integration tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/chatapp_usecase_int?sslmode=disable
+        run: go test -tags=integration ./usecase -count=1 -timeout 20m
+      - name: E2E integration tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/chatapp_e2e_int?sslmode=disable
+        run: go test -tags=integration ./e2e -count=1 -timeout 20m
 
   backend-message-contract:
     name: Message Event Contract
