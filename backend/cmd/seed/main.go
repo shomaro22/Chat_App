@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"chat-app/auth"
-	"chat-app/entity"
 	"chat-app/db"
+	"chat-app/entity"
 	"chat-app/repository"
 
 	"github.com/google/uuid"
@@ -101,15 +101,15 @@ func runE2ESeed() {
 			return
 		}
 		u := &entity.User{
-			ID:           uuid.New(),
-			Name:         name,
-			Email:        email,
-			PasswordHash: hash,
-			Role:         role,
-			Active:       true,
+			ID:              uuid.New(),
+			Name:            name,
+			Email:           email,
+			PasswordHash:    hash,
+			Role:            role,
+			Active:          true,
 			EmailVerifiedAt: &now,
-			CreatedAt:    now,
-			UpdatedAt:    now,
+			CreatedAt:       now,
+			UpdatedAt:       now,
 		}
 		if err := users.Create(ctx, u); err != nil {
 			log.Fatalf("create %s: %v", email, err)
@@ -236,12 +236,12 @@ func runDevSeed(flagArgs []string) {
 				continue
 			}
 			res := gormDB.WithContext(ctx).Model(&entity.User{}).Where("email = ?", acc.email).Updates(map[string]any{
-				"password_hash": hash,
-				"name":          acc.name,
-				"role":          acc.role,
-				"active":        true,
+				"password_hash":     hash,
+				"name":              acc.name,
+				"role":              acc.role,
+				"active":            true,
 				"email_verified_at": now,
-				"updated_at":    now,
+				"updated_at":        now,
 			})
 			if res.Error != nil {
 				log.Fatalf("update %s: %v", acc.email, res.Error)
@@ -255,15 +255,15 @@ func runDevSeed(flagArgs []string) {
 		}
 
 		u := &entity.User{
-			ID:           uuid.New(),
-			Name:         acc.name,
-			Email:        acc.email,
-			PasswordHash: hash,
-			Role:         acc.role,
-			Active:       true,
+			ID:              uuid.New(),
+			Name:            acc.name,
+			Email:           acc.email,
+			PasswordHash:    hash,
+			Role:            acc.role,
+			Active:          true,
 			EmailVerifiedAt: &now,
-			CreatedAt:    now,
-			UpdatedAt:    now,
+			CreatedAt:       now,
+			UpdatedAt:       now,
 		}
 		if err := users.Create(ctx, u); err != nil {
 			log.Fatalf("create %s: %v", acc.email, err)
