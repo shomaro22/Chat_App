@@ -37,7 +37,7 @@ const (
 
 // クライアント → サーバーの type（購読・解除・任意 JSON ping）。
 const (
-	WSClientPing = "ping"
+	WSClientPing   = "ping"
 	WSClientTyping = "typing"
 
 	WSClientSubscribePrimary   = "subscribe"
@@ -86,7 +86,7 @@ type wsErrorOutbound struct {
 	RoomID        *string `json:"room_id,omitempty"`
 }
 
-// wsSessionReadyOutbound は接続直後に 1 回だけ送るハンドシェイク用イベント。
+// wsSessionReadyOutbound は接続直後に1回だけ送るハンドシェイク用イベント。
 type wsSessionReadyOutbound struct {
 	Type          string    `json:"type"`
 	SchemaVersion int       `json:"schema_version"`

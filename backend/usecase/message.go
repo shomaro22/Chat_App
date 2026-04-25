@@ -163,18 +163,18 @@ func (u *MessageUseCase) SendRoomMessage(ctx context.Context, in MessageSendInpu
 	}
 	now := time.Now().UTC()
 	msg := &entity.Message{
-		ID:               uuid.New(),
-		RoomID:           in.RoomID,
-		SenderID:         in.SenderID,
-		ParentMessageID:  parentID,
-		Content:          content,
-		ImageURL:         imageURL,
-		FileURL:          fileURL,
-		FileName:         fileName,
-		FileContentType:  fileCT,
-		IsDeleted:        false,
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		ID:              uuid.New(),
+		RoomID:          in.RoomID,
+		SenderID:        in.SenderID,
+		ParentMessageID: parentID,
+		Content:         content,
+		ImageURL:        imageURL,
+		FileURL:         fileURL,
+		FileName:        fileName,
+		FileContentType: fileCT,
+		IsDeleted:       false,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 	if err := u.MessageRepo.Create(ctx, msg); err != nil {
 		return nil, err
@@ -314,6 +314,7 @@ func (u *MessageUseCase) SearchJoined(ctx context.Context, userID uuid.UUID, que
 		return nil, ErrInvalidSearchQuery
 	}
 	// LIKE メタ文字をエスケープ
+	// ユーザーの入力を「ただの文字列」として検索、想定外のヒット増加や挙動ズレを防ぐ
 	q = strings.ReplaceAll(q, `\`, `\\`)
 	q = strings.ReplaceAll(q, `%`, `\%`)
 	q = strings.ReplaceAll(q, `_`, `\_`)
