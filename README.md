@@ -165,6 +165,7 @@ go run ./cmd/seed dev -team
 ```bash
 cd backend
 go test ./...
+go test -tags=integration ./repository ./usecase ./e2e -count=1 -timeout 20m
 ```
 
 ### Frontend lint / build
