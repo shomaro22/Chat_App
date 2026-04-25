@@ -5,47 +5,46 @@ import {
   useMemo,
   useRef,
   useState,
-} from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { fetchWithAuth } from '../lib/api';
-import { requestRoomsRefresh } from '../lib/roomsRefresh';
-import { toErrorMessage } from '../chat/errors';
-import { markMessageDeletedInList, sortMessagesAsc } from '../chat/messageUtils';
-import { MessageComposer } from '../components/MessageComposer';
-import { MessageList } from '../components/MessageList';
-import { useReadState } from '../hooks/useReadState';
-import { useRoomDetail } from '../hooks/useRoomDetail';
-import { useRoomMessages } from '../hooks/useRoomMessages';
-import { useRoomWebSocket, type RoomWsHandlerBag } from '../hooks/useRoomWebSocket';
-import type { Message, ReaderInfo, ReadStateResponse, ReactionChip, ReactionRow } from '../types/chat';
-import { MESSAGE_PAGE_LIMIT } from '../types/chat';
-
-type APIErrorBody = {
-  error?: string;
-  code?: string;
-};
-
-function formatUploadError(status: number, body: APIErrorBody, kind: 'image' | 'file'): string {
-  if (status === 413 || body.code === 'UPLOAD_TOO_LARGE') {
-    return kind === 'image'
-      ? '画像サイズが上限を超えています（最大10MB）。'
-      : 'ファイルサイズが上限を超えています（最大25MB）。';
-  }
-  if (status === 415 || body.code === 'UNSUPPORTED_MEDIA') {
-    return kind === 'image'
-      ? '画像形式が未対応です。jpg / png / gif / webp を選択してください。'
-      : 'ファイル形式が未対応です。pdf / txt / zip を選択してください。';
-  }
-  if (body.error?.trim()) return body.error;
-  return toErrorMessage(status, kind === 'image' ? '画像アップロードに失敗しました。' : 'ファイルのアップロードに失敗しました。');
-}
+} from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { fetchWithAuth } from "../lib/api";
+import { requestRoomsRefresh } from "../lib/roomsRefresh";
+import { toErrorMessage } from "../chat/errors";
+import {
+  markMessageDeletedInList,
+  sortMessagesAsc,
+} from "../chat/messageUtils";
+import { MessageComposer } from "../components/MessageComposer";
+import { ConfirmActionModal } from "../components/ConfirmActionModal";
+import { MessageList } from "../components/MessageList";
+import { RoomSettingsModal } from "../components/RoomSettingsModal";
+import { useRoomComposerActions } from "../hooks/useRoomComposerActions";
+import { useRoomSettingsActions } from "../hooks/useRoomSettingsActions";
+import { useReadState } from "../hooks/useReadState";
+import { useRoomDetail } from "../hooks/useRoomDetail";
+import { useRoomMessages } from "../hooks/useRoomMessages";
+import {
+  useRoomWebSocket,
+  type RoomWsHandlerBag,
+} from "../hooks/useRoomWebSocket";
+import type {
+  Message,
+  ReaderInfo,
+  ReadStateResponse,
+  ReactionChip,
+  ReactionRow,
+} from "../types/chat";
+import { MESSAGE_PAGE_LIMIT } from "../types/chat";
 
 function aggregateReactions(
   rows: ReactionRow[],
   selfId: string | null,
   resolveUserName: (userId: string) => string,
 ): ReactionChip[] {
-  const map = new Map<string, { count: number; mine: boolean; userNames: string[] }>();
+  const map = new Map<
+    string,
+    { count: number; mine: boolean; userNames: string[] }
+  >();
   for (const r of rows) {
     const cur = map.get(r.emoji) ?? { count: 0, mine: false, userNames: [] };
     cur.count++;
@@ -53,41 +52,56 @@ function aggregateReactions(
     cur.userNames.push(resolveUserName(r.user_id));
     map.set(r.emoji, cur);
   }
-  return [...map.entries()].map(([emoji, v]) => ({ emoji, count: v.count, mine: v.mine, userNames: v.userNames }));
+  return [...map.entries()].map(([emoji, v]) => ({
+    emoji,
+    count: v.count,
+    mine: v.mine,
+    userNames: v.userNames,
+  }));
 }
 
 export function RoomThread() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const targetMessageId = searchParams.get('message_id')?.trim() || null;
+  const targetMessageId = searchParams.get("message_id")?.trim() || null;
   const [error, setError] = useState<string | null>(null);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [selfUserId, setSelfUserId] = useState<string | null>(null);
-  const [membersOnline, setMembersOnline] = useState<Record<string, boolean>>({});
-  const [wsStatus, setWsStatus] = useState<'connecting' | 'open' | 'closed'>('connecting');
+  const [membersOnline, setMembersOnline] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [wsStatus, setWsStatus] = useState<"connecting" | "open" | "closed">(
+    "connecting",
+  );
   const [retryCount, setRetryCount] = useState(0);
   const [showRoomModal, setShowRoomModal] = useState(false);
   const [roomModalError, setRoomModalError] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState('');
-  const [addMemberRef, setAddMemberRef] = useState('');
+  const [renameDraft, setRenameDraft] = useState("");
+  const [addMemberRef, setAddMemberRef] = useState("");
   const [roomActionBusy, setRoomActionBusy] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
-  const [reactionsByMessage, setReactionsByMessage] = useState<Record<string, ReactionChip[]>>({});
+  const [reactionsByMessage, setReactionsByMessage] = useState<
+    Record<string, ReactionChip[]>
+  >({});
   const [pin, setPin] = useState<{ message_id: string } | null>(null);
-  const [bookmarkedByMessage, setBookmarkedByMessage] = useState<Record<string, boolean>>({});
+  const [bookmarkedByMessage, setBookmarkedByMessage] = useState<
+    Record<string, boolean>
+  >({});
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
   const [peerBlocked, setPeerBlocked] = useState(false);
   const [blockBusy, setBlockBusy] = useState(false);
-  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<
+    string | null
+  >(null);
   const [confirmAction, setConfirmAction] = useState<
     | null
-    | { type: 'close-room' }
-    | { type: 'leave-room'; userId: string }
-    | { type: 'remove-member'; userId: string }
+    | { type: "close-room" }
+    | { type: "leave-room"; userId: string }
+    | { type: "remove-member"; userId: string }
   >(null);
   const typingTimeoutsRef = useRef<Record<string, number>>({});
   const typingIdleTimerRef = useRef<number | null>(null);
@@ -151,7 +165,11 @@ export function RoomThread() {
   } = useRoomDetail(id);
 
   const displayUnread =
-    roomDetailUnread != null ? roomDetailUnread : readStateUnreadCount != null ? readStateUnreadCount : null;
+    roomDetailUnread != null
+      ? roomDetailUnread
+      : readStateUnreadCount != null
+        ? readStateUnreadCount
+        : null;
   const displayMyLastReadId = roomDetailMyLastRead ?? readStateMyLastReadId;
 
   const loadMessagesAndReadState = useCallback(async () => {
@@ -160,18 +178,23 @@ export function RoomThread() {
     setReadStateError(null);
     try {
       const [messageRes, readStateRes] = await Promise.all([
-        fetchWithAuth(`/rooms/${id}/messages?order=desc&limit=${MESSAGE_PAGE_LIMIT}&include_read_count=1`),
+        fetchWithAuth(
+          `/rooms/${id}/messages?order=desc&limit=${MESSAGE_PAGE_LIMIT}&include_read_count=1`,
+        ),
         fetchWithAuth(`/rooms/${id}/read-state`),
       ]);
       if (messageRes.status === 401 || readStateRes.status === 401) {
         return;
       }
       if (!messageRes.ok) {
-        setError(toErrorMessage(messageRes.status, 'メッセージの取得に失敗しました。'));
+        setError(
+          toErrorMessage(messageRes.status, "メッセージの取得に失敗しました。"),
+        );
         return;
       }
       const messageData = await messageRes.json();
-      const rawList: Message[] = messageData.messages ?? messageData.Messages ?? [];
+      const rawList: Message[] =
+        messageData.messages ?? messageData.Messages ?? [];
       setHasMoreOlder(rawList.length === MESSAGE_PAGE_LIMIT);
       setMessages(sortMessagesAsc([...rawList].reverse()));
 
@@ -180,17 +203,22 @@ export function RoomThread() {
         applyReadPayload(readData);
         setReadStateError(null);
       } else {
-        setReadStateError(toErrorMessage(readStateRes.status, '既読状態の取得に失敗しました。'));
+        setReadStateError(
+          toErrorMessage(readStateRes.status, "既読状態の取得に失敗しました。"),
+        );
       }
     } catch {
-      setError('通信に失敗しました。接続を確認してください。');
+      setError("通信に失敗しました。接続を確認してください。");
     }
   }, [id, setMessages, setHasMoreOlder, applyReadPayload, setReadStateError]);
 
   const runLoadOlderWithScrollCapture = useCallback(async () => {
     const listEl = messageListRef.current;
     if (listEl) {
-      scrollAfterOlderRef.current = { sh: listEl.scrollHeight, st: listEl.scrollTop };
+      scrollAfterOlderRef.current = {
+        sh: listEl.scrollHeight,
+        st: listEl.scrollTop,
+      };
     }
     const ok = await loadOlderMessages();
     if (!ok) {
@@ -236,19 +264,19 @@ export function RoomThread() {
   }, [messages, messageIndexMap, readInfo, readUsers, selfUserId]);
 
   const roomTitle = useMemo(() => {
-    if (roomMeta?.type === 'direct' && directPeer) {
+    if (roomMeta?.type === "direct" && directPeer) {
       return directPeer.name?.trim() || directPeer.user_id.slice(0, 8);
     }
-    if (roomMeta?.type === 'group') {
-      return roomMeta.name?.trim() || 'グループ';
+    if (roomMeta?.type === "group") {
+      return roomMeta.name?.trim() || "グループ";
     }
-    return 'ルーム';
+    return "ルーム";
   }, [roomMeta, directPeer]);
 
   const wsStatusLabel = useMemo(() => {
-    if (wsStatus === 'connecting') return '接続中';
-    if (wsStatus === 'open') return '接続済み';
-    return '切断';
+    if (wsStatus === "connecting") return "接続中";
+    if (wsStatus === "open") return "接続済み";
+    return "切断";
   }, [wsStatus]);
 
   const memberNameById = useMemo(() => {
@@ -260,34 +288,44 @@ export function RoomThread() {
   }, [roomMembers]);
 
   const typingLabel = useMemo(() => {
-    if (typingUserIds.length === 0) return '';
+    if (typingUserIds.length === 0) return "";
     return typingUserIds
       .map((uid) => memberNameById[uid] ?? readUsers[uid] ?? uid.slice(0, 8))
-      .join('、');
+      .join("、");
   }, [typingUserIds, memberNameById, readUsers]);
 
   const pinnedPreview = useMemo(() => {
     if (!pin?.message_id) return null;
     const pm = messages.find((x) => x.id === pin.message_id);
     if (!pm) return { text: `メッセージ ${pin.message_id.slice(0, 8)}…` };
-    const t = (pm.content ?? pm.file_name ?? (pm.image_url ? '[画像]' : '')).slice(0, 120);
-    return { text: t || '（内容なし）' };
+    const t = (
+      pm.content ??
+      pm.file_name ??
+      (pm.image_url ? "[画像]" : "")
+    ).slice(0, 120);
+    return { text: t || "（内容なし）" };
   }, [pin, messages]);
 
   const navigateToLogin = useCallback(() => {
-    navigate('/login', { replace: true });
+    navigate("/login", { replace: true });
   }, [navigate]);
 
   const refreshReactionsForOne = useCallback(
     async (messageId: string) => {
       if (!id) return;
-      const res = await fetchWithAuth(`/rooms/${id}/messages/${messageId}/reactions`);
+      const res = await fetchWithAuth(
+        `/rooms/${id}/messages/${messageId}/reactions`,
+      );
       if (!res.ok) return;
       const data = await res.json().catch(() => ({}));
       const rows = (data.reactions ?? []) as ReactionRow[];
       setReactionsByMessage((prev) => ({
         ...prev,
-        [messageId]: aggregateReactions(rows, selfUserId, (uid) => memberNameById[uid] ?? readUsers[uid] ?? uid.slice(0, 8)),
+        [messageId]: aggregateReactions(
+          rows,
+          selfUserId,
+          (uid) => memberNameById[uid] ?? readUsers[uid] ?? uid.slice(0, 8),
+        ),
       }));
     },
     [id, selfUserId, memberNameById, readUsers],
@@ -295,7 +333,10 @@ export function RoomThread() {
 
   const refreshReactionsVisible = useCallback(async () => {
     if (!id) return;
-    const mids = messages.filter((m) => !m.is_deleted).slice(-24).map((m) => m.id);
+    const mids = messages
+      .filter((m) => !m.is_deleted)
+      .slice(-24)
+      .map((m) => m.id);
     const chunk = 6;
     for (let i = 0; i < mids.length; i += chunk) {
       const slice = mids.slice(i, i + chunk);
@@ -322,23 +363,30 @@ export function RoomThread() {
     },
     onPresenceUpdated: (userId, isOnline) => {
       setMembersOnline((prev) => ({ ...prev, [userId]: isOnline }));
-      setRoomMembers((prev) => prev.map((m) => (m.user_id === userId ? { ...m, online: isOnline } : m)));
+      setRoomMembers((prev) =>
+        prev.map((m) =>
+          m.user_id === userId ? { ...m, online: isOnline } : m,
+        ),
+      );
     },
     onError: (msg) => setError(msg),
-    onSchemaMismatch: () => setError('WebSocket のスキーマ不一致です。'),
-    onForbiddenMember: () => setError('このルームは閲覧できません'),
-    onWsTransportError: () => setError('WebSocket 接続に失敗しました。再接続を試行します。'),
-    onConnecting: () => setWsStatus('connecting'),
+    onSchemaMismatch: () => setError("WebSocket のスキーマ不一致です。"),
+    onForbiddenMember: () => setError("このルームは閲覧できません"),
+    onWsTransportError: () =>
+      setError("WebSocket 接続に失敗しました。再接続を試行します。"),
+    onConnecting: () => setWsStatus("connecting"),
     onOpen: () => {
-      setWsStatus('open');
+      setWsStatus("open");
       setRetryCount(0);
     },
-    onClosed: () => setWsStatus('closed'),
+    onClosed: () => setWsStatus("closed"),
     onReconnectScheduled: (nextAttempt) => setRetryCount(nextAttempt),
     onTyping: (userId, isTyping) => {
       if (!selfUserId || userId === selfUserId) return;
       if (isTyping) {
-        setTypingUserIds((prev) => (prev.includes(userId) ? prev : [...prev, userId]));
+        setTypingUserIds((prev) =>
+          prev.includes(userId) ? prev : [...prev, userId],
+        );
         const prevT = typingTimeoutsRef.current[userId];
         if (prevT != null) window.clearTimeout(prevT);
         typingTimeoutsRef.current[userId] = window.setTimeout(() => {
@@ -358,7 +406,8 @@ export function RoomThread() {
 
   const notifyTypingActivity = useCallback(() => {
     sendTyping(true);
-    if (typingIdleTimerRef.current != null) window.clearTimeout(typingIdleTimerRef.current);
+    if (typingIdleTimerRef.current != null)
+      window.clearTimeout(typingIdleTimerRef.current);
     typingIdleTimerRef.current = window.setTimeout(() => {
       sendTyping(false);
       typingIdleTimerRef.current = null;
@@ -367,8 +416,11 @@ export function RoomThread() {
 
   useEffect(() => {
     return () => {
-      if (typingIdleTimerRef.current != null) window.clearTimeout(typingIdleTimerRef.current);
-      Object.values(typingTimeoutsRef.current).forEach((tid) => window.clearTimeout(tid));
+      if (typingIdleTimerRef.current != null)
+        window.clearTimeout(typingIdleTimerRef.current);
+      Object.values(typingTimeoutsRef.current).forEach((tid) =>
+        window.clearTimeout(tid),
+      );
       typingTimeoutsRef.current = {};
     };
   }, []);
@@ -397,7 +449,7 @@ export function RoomThread() {
     if (!id) return;
     setBookmarkedByMessage({});
     void (async () => {
-      const res = await fetchWithAuth('/me/bookmarks?limit=200');
+      const res = await fetchWithAuth("/me/bookmarks?limit=200");
       if (!res.ok) return;
       const data = await res.json().catch(() => ({}));
       const marks: Record<string, boolean> = {};
@@ -437,7 +489,7 @@ export function RoomThread() {
   }, [id, loadMessagesAndReadState, loadRoomDetail]);
 
   useEffect(() => {
-    if (!id || roomMeta?.type !== 'direct' || !directPeer?.user_id) {
+    if (!id || roomMeta?.type !== "direct" || !directPeer?.user_id) {
       setPeerBlocked(false);
       return;
     }
@@ -475,15 +527,26 @@ export function RoomThread() {
     }
     const root = messageListRef.current;
     if (!root) return;
-    const el = root.querySelector(`[data-message-id="${targetMessageId}"]`) as HTMLElement | null;
+    const el = root.querySelector(
+      `[data-message-id="${targetMessageId}"]`,
+    ) as HTMLElement | null;
     if (!el) return;
     setHighlightedMessageId(targetMessageId);
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
     const tid = window.setTimeout(() => {
-      setHighlightedMessageId((prev) => (prev === targetMessageId ? null : prev));
+      setHighlightedMessageId((prev) =>
+        prev === targetMessageId ? null : prev,
+      );
     }, 2200);
     return () => window.clearTimeout(tid);
-  }, [id, targetMessageId, messages, hasMoreOlder, loadingOlder, runLoadOlderWithScrollCapture]);
+  }, [
+    id,
+    targetMessageId,
+    messages,
+    hasMoreOlder,
+    loadingOlder,
+    runLoadOlderWithScrollCapture,
+  ]);
 
   useEffect(() => {
     if (!id || !latestVisibleMessageId) return;
@@ -509,16 +572,16 @@ export function RoomThread() {
       void loadRoomDetail();
     };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === "visible") {
         void loadMessagesAndReadState();
         void loadRoomDetail();
       }
     };
-    window.addEventListener('online', onBrowserOnline);
-    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener("online", onBrowserOnline);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
-      window.removeEventListener('online', onBrowserOnline);
-      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener("online", onBrowserOnline);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [id, loadMessagesAndReadState, loadRoomDetail]);
 
@@ -556,34 +619,45 @@ export function RoomThread() {
     }
   };
 
-  const isRoomCreator = Boolean(selfUserId && roomMeta && roomMeta.created_by === selfUserId);
-  const isGroup = roomMeta?.type === 'group';
-  const canRenameGroup = isGroup && isRoomCreator && roomMeta && !roomMeta.is_frozen;
-  const canAddMember = isGroup && roomMeta && !roomMeta.is_frozen;
-  const canCloseRoom =
+  const isRoomCreator = Boolean(
+    selfUserId && roomMeta && roomMeta.created_by === selfUserId,
+  );
+  const isGroup = roomMeta?.type === "group";
+  const canRenameGroup = Boolean(
+    isGroup && isRoomCreator && roomMeta && !roomMeta.is_frozen,
+  );
+  const canAddMember = Boolean(isGroup && roomMeta && !roomMeta.is_frozen);
+  const canCloseRoom = Boolean(
     roomMeta &&
-    ((roomMeta.type === 'group' && isRoomCreator) || roomMeta.type === 'direct') &&
-    !roomMeta.is_frozen;
+      ((roomMeta.type === "group" && isRoomCreator) ||
+        roomMeta.type === "direct") &&
+      !roomMeta.is_frozen,
+  );
 
   const handleEditMessage = async (messageId: string, content: string) => {
     if (!id || !content.trim()) return;
     setError(null);
     try {
       const res = await fetchWithAuth(`/rooms/${id}/messages/${messageId}`, {
-        method: 'PATCH',
+        method: "PATCH",
         body: JSON.stringify({ content: content.trim() }),
       });
       if (res.status === 401) return;
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(toErrorMessage(res.status, (data as { error?: string }).error ?? '編集に失敗しました。'));
+        setError(
+          toErrorMessage(
+            res.status,
+            (data as { error?: string }).error ?? "編集に失敗しました。",
+          ),
+        );
         return;
       }
       const data = await res.json().catch(() => ({}));
       if (data.message) upsertMessage(data.message as Message);
       requestRoomsRefresh();
     } catch {
-      setError('通信エラーが発生しました。');
+      setError("通信エラーが発生しました。");
     }
   };
 
@@ -592,11 +666,18 @@ export function RoomThread() {
     setDeletingId(messageId);
     setError(null);
     try {
-      const res = await fetchWithAuth(`/messages/${messageId}`, { method: 'DELETE' });
+      const res = await fetchWithAuth(`/messages/${messageId}`, {
+        method: "DELETE",
+      });
       if (res.status === 401) return;
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(toErrorMessage(res.status, (data as { error?: string }).error ?? '削除に失敗しました。'));
+        setError(
+          toErrorMessage(
+            res.status,
+            (data as { error?: string }).error ?? "削除に失敗しました。",
+          ),
+        );
         return;
       }
       setMessages((prev) => markMessageDeletedInList(prev, messageId));
@@ -615,10 +696,10 @@ export function RoomThread() {
       const res = mine
         ? await fetchWithAuth(
             `/rooms/${id}/messages/${messageId}/reactions?emoji=${encodeURIComponent(emoji)}`,
-            { method: 'DELETE' },
+            { method: "DELETE" },
           )
         : await fetchWithAuth(`/rooms/${id}/messages/${messageId}/reactions`, {
-            method: 'POST',
+            method: "POST",
             body: JSON.stringify({ emoji }),
           });
       if (res.status === 401) return;
@@ -631,13 +712,18 @@ export function RoomThread() {
   const handlePinMessage = async (messageId: string) => {
     if (!id) return;
     const res = await fetchWithAuth(`/rooms/${id}/pin`, {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify({ message_id: messageId }),
     });
     if (res.status === 401) return;
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setError(toErrorMessage(res.status, (data as { error?: string }).error ?? 'ピンに失敗しました。'));
+      setError(
+        toErrorMessage(
+          res.status,
+          (data as { error?: string }).error ?? "ピンに失敗しました。",
+        ),
+      );
       return;
     }
     setPin({ message_id: messageId });
@@ -645,14 +731,16 @@ export function RoomThread() {
 
   const handleClearPin = async () => {
     if (!id) return;
-    const res = await fetchWithAuth(`/rooms/${id}/pin`, { method: 'DELETE' });
+    const res = await fetchWithAuth(`/rooms/${id}/pin`, { method: "DELETE" });
     if (res.status === 401) return;
     if (res.ok) setPin(null);
   };
 
   const handleToggleBookmark = async (messageId: string) => {
     const on = bookmarkedByMessage[messageId];
-    const res = await fetchWithAuth(`/messages/${messageId}/bookmark`, { method: on ? 'DELETE' : 'POST' });
+    const res = await fetchWithAuth(`/messages/${messageId}/bookmark`, {
+      method: on ? "DELETE" : "POST",
+    });
     if (res.status === 401) return;
     if (!res.ok) return;
     setBookmarkedByMessage((prev) => ({ ...prev, [messageId]: !on }));
@@ -663,268 +751,62 @@ export function RoomThread() {
     const root = messageListRef.current;
     if (!root) return;
     const el = root.querySelector(`[data-message-id="${pin.message_id}"]`);
-    (el as HTMLElement | null)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    (el as HTMLElement | null)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
   };
 
-  const handleSend = async () => {
-    if (!id || !input.trim()) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const body: Record<string, string> = { content: input.trim() };
-      if (replyTo) body.parent_message_id = replyTo.id;
-      const res = await fetchWithAuth(`/rooms/${id}/messages`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.message) {
-        upsertMessage(data.message as Message);
-        setInput('');
-        setReplyTo(null);
-        void loadRoomDetail();
-        requestRoomsRefresh();
-      } else if (!res.ok) {
-        if (res.status === 401) return;
-        setError(toErrorMessage(res.status, 'メッセージ送信に失敗しました。'));
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { handleSend, handleImageFile, handleGenericFile } =
+    useRoomComposerActions({
+      roomId: id,
+      input,
+      replyTo,
+      setInput,
+      setReplyTo,
+      setError,
+      setLoading,
+      setUploading,
+      upsertMessage,
+      loadRoomDetail,
+    });
 
-  const handleImageFile = async (file: File) => {
-    if (!id) return;
-    setUploading(true);
-    setError(null);
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      const uploadRes = await fetchWithAuth('/media/images', {
-        method: 'POST',
-        body: form,
-      });
-      const uploadData = await uploadRes.json().catch(() => ({}));
-      if (!uploadRes.ok || !uploadData.url) {
-        if (uploadRes.status === 401) return;
-        setError(formatUploadError(uploadRes.status, uploadData as APIErrorBody, 'image'));
-        return;
-      }
-      const sendBody: Record<string, string> = { image_url: uploadData.url };
-      const cap = input.trim();
-      if (cap) sendBody.content = cap;
-      if (replyTo) sendBody.parent_message_id = replyTo.id;
-      const sendRes = await fetchWithAuth(`/rooms/${id}/messages`, {
-        method: 'POST',
-        body: JSON.stringify(sendBody),
-      });
-      const sendData = await sendRes.json().catch(() => ({}));
-      if (sendRes.ok && sendData.message) {
-        upsertMessage(sendData.message as Message);
-        setInput('');
-        setReplyTo(null);
-        void loadRoomDetail();
-        requestRoomsRefresh();
-      } else if (!sendRes.ok) {
-        if (sendRes.status === 401) return;
-        const apiError = (sendData as { error?: string }).error?.trim();
-        setError(apiError || toErrorMessage(sendRes.status, '画像メッセージ送信に失敗しました。'));
-      }
-    } catch {
-      setError('通信エラーのため画像を送信できませんでした。接続を確認して再試行してください。');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleGenericFile = async (file: File) => {
-    if (!id) return;
-    setUploading(true);
-    setError(null);
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      const uploadRes = await fetchWithAuth('/media/files', {
-        method: 'POST',
-        body: form,
-      });
-      const uploadData = await uploadRes.json().catch(() => ({}));
-      if (!uploadRes.ok || !uploadData.url) {
-        if (uploadRes.status === 401) return;
-        setError(formatUploadError(uploadRes.status, uploadData as APIErrorBody, 'file'));
-        return;
-      }
-      const caption = input.trim();
-      const sendBody: Record<string, string> = {
-        file_url: uploadData.url,
-        file_name: uploadData.filename ?? file.name,
-        file_content_type: uploadData.content_type ?? file.type,
-      };
-      if (caption) sendBody.content = caption;
-      if (replyTo) sendBody.parent_message_id = replyTo.id;
-      const sendRes = await fetchWithAuth(`/rooms/${id}/messages`, {
-        method: 'POST',
-        body: JSON.stringify(sendBody),
-      });
-      const sendData = await sendRes.json().catch(() => ({}));
-      if (sendRes.ok && sendData.message) {
-        upsertMessage(sendData.message as Message);
-        setInput('');
-        setReplyTo(null);
-        void loadRoomDetail();
-        requestRoomsRefresh();
-      } else if (!sendRes.ok) {
-        if (sendRes.status === 401) return;
-        const apiError = (sendData as { error?: string }).error?.trim();
-        setError(apiError || toErrorMessage(sendRes.status, 'ファイル付きメッセージの送信に失敗しました。'));
-      }
-    } catch {
-      setError('通信エラーのためファイルを送信できませんでした。接続を確認して再試行してください。');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const patchRoomName = async () => {
-    if (!id || !renameDraft.trim()) return;
-    setRoomActionBusy(true);
-    setRoomModalError(null);
-    try {
-      const res = await fetchWithAuth(`/rooms/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ name: renameDraft.trim() }),
-      });
-      if (res.status === 401) return;
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setRoomModalError(toErrorMessage(res.status, (data as { error?: string }).error ?? '更新に失敗しました。'));
-        return;
-      }
-      setRoomMeta((m) => (m ? { ...m, name: renameDraft.trim() } : m));
-      requestRoomsRefresh();
-    } finally {
-      setRoomActionBusy(false);
-    }
-  };
-
-  const addMember = async () => {
-    if (!id || !addMemberRef.trim()) return;
-    setRoomActionBusy(true);
-    setRoomModalError(null);
-    try {
-      const res = await fetchWithAuth(`/rooms/${id}/members`, {
-        method: 'POST',
-        body: JSON.stringify({ member_id: addMemberRef.trim() }),
-      });
-      if (res.status === 401) return;
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setRoomModalError(toErrorMessage(res.status, (data as { error?: string }).error ?? '追加に失敗しました。'));
-        return;
-      }
-      setAddMemberRef('');
-      await loadRoomDetail();
-      requestRoomsRefresh();
-    } finally {
-      setRoomActionBusy(false);
-    }
-  };
-
-  const removeMember = async (targetUserId: string) => {
-    if (!id || !targetUserId) return;
-    setRoomActionBusy(true);
-    setRoomModalError(null);
-    try {
-      const res = await fetchWithAuth(`/rooms/${id}/members/${targetUserId}`, { method: 'DELETE' });
-      if (res.status === 401) return;
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setRoomModalError(toErrorMessage(res.status, (data as { error?: string }).error ?? '操作に失敗しました。'));
-        return;
-      }
-      if (selfUserId === targetUserId) {
-        setShowRoomModal(false);
-        requestRoomsRefresh();
-        navigate('/rooms');
-        return;
-      }
-      await loadRoomDetail();
-      requestRoomsRefresh();
-    } finally {
-      setRoomActionBusy(false);
-    }
-  };
-
-  const closeRoom = async () => {
-    if (!id) return;
-    setRoomActionBusy(true);
-    setRoomModalError(null);
-    try {
-      const res = await fetchWithAuth(`/rooms/${id}`, { method: 'DELETE' });
-      if (res.status === 401) return;
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setRoomModalError(toErrorMessage(res.status, (data as { error?: string }).error ?? 'クローズに失敗しました。'));
-        return;
-      }
-      setShowRoomModal(false);
-      requestRoomsRefresh();
-      navigate('/rooms');
-    } finally {
-      setRoomActionBusy(false);
-    }
-  };
-
-  const toggleDirectPeerBlock = async () => {
-    if (roomMeta?.type !== 'direct' || !directPeer?.user_id || blockBusy) return;
-    setBlockBusy(true);
-    setRoomModalError(null);
-    try {
-      const res = await fetchWithAuth(`/users/${directPeer.user_id}/block`, {
-        method: peerBlocked ? 'DELETE' : 'POST',
-      });
-      if (res.status === 401) return;
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setRoomModalError(toErrorMessage(res.status, (data as { error?: string }).error ?? 'ブロック操作に失敗しました。'));
-        return;
-      }
-      setPeerBlocked((prev) => !prev);
-      await loadMessagesAndReadState();
-      await loadRoomDetail();
-      requestRoomsRefresh();
-    } finally {
-      setBlockBusy(false);
-    }
-  };
-
-  const confirmTitle =
-    confirmAction?.type === 'close-room'
-      ? 'ルームを閉じる'
-      : confirmAction?.type === 'leave-room'
-        ? 'ルームから退出'
-        : confirmAction?.type === 'remove-member'
-          ? 'メンバーを削除'
-          : '';
-
-  const confirmMessage =
-    confirmAction?.type === 'close-room'
-      ? 'このルームを閉じますか？（メンバー全員がアクセスできなくなります）'
-      : confirmAction?.type === 'leave-room'
-        ? 'このルームから退出しますか？'
-        : confirmAction?.type === 'remove-member'
-          ? 'このメンバーを削除しますか？'
-          : '';
+  const {
+    patchRoomName,
+    addMember,
+    removeMember,
+    closeRoom,
+    toggleDirectPeerBlock,
+  } = useRoomSettingsActions({
+    roomId: id,
+    renameDraft,
+    addMemberRef,
+    selfUserId,
+    roomType: roomMeta?.type,
+    directPeerUserId: directPeer?.user_id,
+    peerBlocked,
+    blockBusy,
+    setRoomActionBusy,
+    setRoomModalError,
+    setRoomMeta,
+    setAddMemberRef,
+    setShowRoomModal,
+    setBlockBusy,
+    setPeerBlocked,
+    loadRoomDetail,
+    loadMessagesAndReadState,
+    onExitRoom: () => navigate("/rooms"),
+  });
 
   const handleConfirmAction = async () => {
     if (!confirmAction) return;
     const action = confirmAction;
     setConfirmAction(null);
-    if (action.type === 'close-room') {
+    if (action.type === "close-room") {
       await closeRoom();
       return;
     }
-    if (action.type === 'leave-room') {
+    if (action.type === "leave-room") {
       await removeMember(action.userId);
       return;
     }
@@ -932,11 +814,7 @@ export function RoomThread() {
   };
 
   if (!id) {
-    return (
-      <div className="chat-empty">
-        ルームを選択してください
-      </div>
-    );
+    return <div className="chat-empty">ルームを選択してください</div>;
   }
 
   return (
@@ -944,8 +822,10 @@ export function RoomThread() {
       <div className="room-toolbar">
         <h2 className="room-toolbar-title">{roomTitle}</h2>
         {roomMeta?.type && (
-          <span className={`room-kind-badge ${roomMeta.type === 'direct' ? 'is-direct' : 'is-group'}`}>
-            {roomMeta.type === 'direct' ? '1対1' : 'グループ'}
+          <span
+            className={`room-kind-badge ${roomMeta.type === "direct" ? "is-direct" : "is-group"}`}
+          >
+            {roomMeta.type === "direct" ? "1対1" : "グループ"}
           </span>
         )}
         {roomMeta?.is_frozen && <span className="room-frozen-badge">凍結</span>}
@@ -955,8 +835,8 @@ export function RoomThread() {
           onClick={() => {
             setShowRoomModal(true);
             setRoomModalError(null);
-            setRenameDraft(roomMeta?.name ?? '');
-            setAddMemberRef('');
+            setRenameDraft(roomMeta?.name ?? "");
+            setAddMemberRef("");
           }}
         >
           ルーム設定
@@ -964,30 +844,43 @@ export function RoomThread() {
       </div>
       {pin && pinnedPreview && (
         <div className="pinned-banner">
+          <span>ピン留め: {pinnedPreview.text}</span>
           <span>
-            ピン留め: {pinnedPreview.text}
-          </span>
-          <span>
-            <button type="button" className="pill-button" onClick={scrollToPinnedMessage}>
+            <button
+              type="button"
+              className="pill-button"
+              onClick={scrollToPinnedMessage}
+            >
               移動
-            </button>{' '}
-            <button type="button" className="pill-button" onClick={() => void handleClearPin()}>
+            </button>{" "}
+            <button
+              type="button"
+              className="pill-button"
+              onClick={() => void handleClearPin()}
+            >
               ピン解除
             </button>
           </span>
         </div>
       )}
-      {typingLabel ? <div className="typing-banner">入力中: {typingLabel}</div> : null}
-      <div className="room-detail-strip" aria-label="ルーム詳細（GET /rooms/:id および既読APIの要約）">
-        {roomMeta?.type === 'direct' && directPeer && (
+      {typingLabel ? (
+        <div className="typing-banner">入力中: {typingLabel}</div>
+      ) : null}
+      <div
+        className="room-detail-strip"
+        aria-label="ルーム詳細（GET /rooms/:id および既読APIの要約）"
+      >
+        {roomMeta?.type === "direct" && directPeer && (
           <span className="room-detail-item" title={directPeer.user_id}>
             相手: {directPeer.name?.trim() || directPeer.user_id.slice(0, 8)}
           </span>
         )}
-        <span className="room-detail-item">未読: {displayUnread != null ? String(displayUnread) : '—'}</span>
-        <span className="room-detail-item" title={displayMyLastReadId ?? ''}>
-          自分の最終既読:{' '}
-          {displayMyLastReadId ? `${displayMyLastReadId.slice(0, 8)}…` : '—'}
+        <span className="room-detail-item">
+          未読: {displayUnread != null ? String(displayUnread) : "—"}
+        </span>
+        <span className="room-detail-item" title={displayMyLastReadId ?? ""}>
+          自分の最終既読:{" "}
+          {displayMyLastReadId ? `${displayMyLastReadId.slice(0, 8)}…` : "—"}
         </span>
       </div>
       <MessageList
@@ -1011,7 +904,7 @@ export function RoomThread() {
         pinnedMessageId={pin?.message_id ?? null}
         bookmarkedByMessage={bookmarkedByMessage}
         onToggleBookmark={handleToggleBookmark}
-        showGroupReadCounts={roomMeta?.type === 'group'}
+        showGroupReadCounts={roomMeta?.type === "group"}
         highlightedMessageId={highlightedMessageId}
       />
       <div className="chat-status">
@@ -1026,8 +919,10 @@ export function RoomThread() {
                   <span className="member-presence-name" title={m.user_id}>
                     {m.name?.trim() || m.user_id.slice(0, 8)}
                   </span>
-                  <span className={`presence-pill${m.online ? ' is-online' : ' is-offline'}`}>
-                    {m.online ? 'オンライン' : 'オフライン'}
+                  <span
+                    className={`presence-pill${m.online ? " is-online" : " is-offline"}`}
+                  >
+                    {m.online ? "オンライン" : "オフライン"}
                   </span>
                 </li>
               ))
@@ -1043,7 +938,11 @@ export function RoomThread() {
       {readStateError && (
         <div className="error-inline-row">
           <span className="error-text">{readStateError}</span>
-          <button className="pill-button" type="button" onClick={() => void loadMessagesAndReadState()}>
+          <button
+            className="pill-button"
+            type="button"
+            onClick={() => void loadMessagesAndReadState()}
+          >
             再取得
           </button>
         </div>
@@ -1061,170 +960,47 @@ export function RoomThread() {
         onClearReply={() => setReplyTo(null)}
       />
       {error && <div className="error-text">{error}</div>}
-      {showRoomModal && (
-        <div
-          className="modal-overlay"
-          onClick={() => {
-            if (!roomActionBusy) setShowRoomModal(false);
-          }}
-        >
-          <div className="modal-card modal-card-room" onClick={(e) => e.stopPropagation()}>
-            <h3>ルーム設定</h3>
-            {roomModalError && <div className="error-text">{roomModalError}</div>}
-            {roomMeta?.is_frozen && (
-              <p className="muted">このルームは凍結中です。名前変更・メンバー追加・送信はサーバー側の制限に従います。</p>
-            )}
-            {roomMeta?.type === 'direct' && directPeer && (
-              <div className="room-settings-block">
-                <label className="room-settings-label">ユーザー制御</label>
-                <p className="muted">
-                  {peerBlocked
-                    ? 'このユーザーをブロック中です。相手の新着メッセージは表示・通知されません。'
-                    : 'ブロックすると相手の新着メッセージは表示・通知されません。'}
-                </p>
-                <button
-                  type="button"
-                  className={`pill-button ${peerBlocked ? '' : 'danger-outline'}`}
-                  disabled={roomActionBusy || blockBusy}
-                  onClick={() => void toggleDirectPeerBlock()}
-                >
-                  {blockBusy ? '処理中…' : peerBlocked ? 'ブロック解除' : 'このユーザーをブロック'}
-                </button>
-              </div>
-            )}
-            {canRenameGroup && (
-              <div className="room-settings-block">
-                <label className="room-settings-label">グループ名</label>
-                <input
-                  className="room-create-input"
-                  value={renameDraft}
-                  onChange={(e) => setRenameDraft(e.target.value)}
-                  disabled={roomActionBusy}
-                />
-                <button
-                  type="button"
-                  className="pill-button"
-                  disabled={roomActionBusy || !renameDraft.trim()}
-                  onClick={() => void patchRoomName()}
-                >
-                  名前を更新
-                </button>
-              </div>
-            )}
-            {canAddMember && (
-              <div className="room-settings-block">
-                <label className="room-settings-label">メンバー追加（メールまたはユーザー ID）</label>
-                <input
-                  className="room-create-input"
-                  value={addMemberRef}
-                  onChange={(e) => setAddMemberRef(e.target.value)}
-                  placeholder="メールまたはユーザーID（API: member_id）"
-                  disabled={roomActionBusy}
-                />
-                <button
-                  type="button"
-                  className="pill-button"
-                  disabled={roomActionBusy || !addMemberRef.trim()}
-                  onClick={() => void addMember()}
-                >
-                  追加
-                </button>
-              </div>
-            )}
-            <div className="room-settings-block">
-              <div className="room-settings-label">メンバー</div>
-              <ul className="room-member-actions">
-                {roomMembers.map((m) => {
-                  const isSelf = selfUserId === m.user_id;
-                  const canKick = isGroup && isRoomCreator && !isSelf && !roomMeta?.is_frozen;
-                  return (
-                    <li key={m.user_id} className="room-member-actions-row">
-                      <span>
-                        {m.name || m.user_id.slice(0, 8)}
-                        {m.online ? ' ●' : ''}
-                      </span>
-                      <span className="room-member-actions-btns">
-                        {isSelf && isGroup && (
-                          <button
-                            type="button"
-                            className="pill-button danger-outline"
-                            disabled={roomActionBusy}
-                            onClick={() => {
-                              setConfirmAction({ type: 'leave-room', userId: m.user_id });
-                            }}
-                          >
-                            ルームから退出
-                          </button>
-                        )}
-                        {canKick && (
-                          <button
-                            type="button"
-                            className="pill-button danger-outline"
-                            disabled={roomActionBusy}
-                            onClick={() => {
-                              setConfirmAction({ type: 'remove-member', userId: m.user_id });
-                            }}
-                          >
-                            メンバーを削除
-                          </button>
-                        )}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-            {canCloseRoom && (
-              <div className="room-settings-block">
-                <button
-                  type="button"
-                  className="pill-button danger-outline room-close-button"
-                  disabled={roomActionBusy}
-                  onClick={() => setConfirmAction({ type: 'close-room' })}
-                >
-                  ルームを閉じる
-                </button>
-              </div>
-            )}
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="pill-button"
-                disabled={roomActionBusy}
-                onClick={() => setShowRoomModal(false)}
-              >
-                閉じる
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {confirmAction && (
-        <div className="modal-overlay" onClick={() => (!roomActionBusy ? setConfirmAction(null) : null)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3>{confirmTitle}</h3>
-            <p>{confirmMessage}</p>
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="pill-button"
-                disabled={roomActionBusy}
-                onClick={() => setConfirmAction(null)}
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                className="pill-button danger-outline"
-                disabled={roomActionBusy}
-                onClick={() => void handleConfirmAction()}
-              >
-                実行
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <RoomSettingsModal
+        open={showRoomModal}
+        roomActionBusy={roomActionBusy}
+        roomModalError={roomModalError}
+        roomMeta={
+          roomMeta && (roomMeta.type === "direct" || roomMeta.type === "group")
+            ? { type: roomMeta.type, is_frozen: roomMeta.is_frozen }
+            : null
+        }
+        directPeer={directPeer ? { user_id: directPeer.user_id } : null}
+        peerBlocked={peerBlocked}
+        blockBusy={blockBusy}
+        canRenameGroup={canRenameGroup}
+        renameDraft={renameDraft}
+        canAddMember={canAddMember}
+        addMemberRef={addMemberRef}
+        roomMembers={roomMembers}
+        selfUserId={selfUserId}
+        isGroup={isGroup}
+        isRoomCreator={isRoomCreator}
+        canCloseRoom={canCloseRoom}
+        onClose={() => setShowRoomModal(false)}
+        onRenameDraftChange={setRenameDraft}
+        onPatchRoomName={() => void patchRoomName()}
+        onAddMemberRefChange={setAddMemberRef}
+        onAddMember={() => void addMember()}
+        onToggleDirectPeerBlock={() => void toggleDirectPeerBlock()}
+        onOpenLeaveConfirm={(userId) =>
+          setConfirmAction({ type: "leave-room", userId })
+        }
+        onOpenRemoveConfirm={(userId) =>
+          setConfirmAction({ type: "remove-member", userId })
+        }
+        onOpenCloseConfirm={() => setConfirmAction({ type: "close-room" })}
+      />
+      <ConfirmActionModal
+        confirmAction={confirmAction}
+        roomActionBusy={roomActionBusy}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={() => void handleConfirmAction()}
+      />
     </div>
   );
 }
