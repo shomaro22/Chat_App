@@ -75,6 +75,7 @@ docker compose up -d
 ```
 
 DB・Redis・バックエンド・フロントエンドを一括起動します。
+初回起動時は `backend-seed` も自動実行され、開発用ユーザーを投入します（存在する場合はスキップ）。
 （コンテナビルドはルート直下の `Dockerfile` を共通利用）
 
 - フロントエンド: `http://localhost`
@@ -151,6 +152,18 @@ go run ./cmd/seed dev -team
 - `admin@example.com`（admin）
 
 `-reset` を付けると既存ユーザーの名前・ロール・パスワードを更新します。
+
+## 画像・添付ファイルの制約
+
+- 画像アップロード API（`POST /media/images`）
+  - 許可: `image/jpeg`, `image/png`, `image/gif`, `image/webp`
+  - 最大サイズ: `10 MiB`
+  - エラー: 非対応は `415 Unsupported Media Type`、サイズ超過は `413 Payload Too Large`
+
+- ファイルアップロード API（`POST /media/files`）
+  - 許可: `application/pdf`, `text/plain`, `application/zip`, `application/x-zip-compressed`
+  - 最大サイズ: `25 MiB`
+  - エラー: 非対応は `415 Unsupported Media Type`、サイズ超過は `413 Payload Too Large`
 
 ## テスト
 
