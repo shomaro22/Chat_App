@@ -29,9 +29,11 @@ WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
 COPY frontend/ ./
+# 本番は相対パスで同一オリジン（nginx -> backend）
+ENV VITE_API_ORIGIN=
 RUN npm run build
 
 FROM nginx:1.27-alpine AS frontend-runtime
-COPY --from=frontend-build /src/frontend/out /usr/share/nginx/html
+COPY --from=frontend-build /src/frontend/dist /usr/share/nginx/html
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
