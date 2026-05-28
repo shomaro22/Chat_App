@@ -2,16 +2,16 @@ import { useEffect, useState } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import './App.css';
 import { fetchWithAuth, getToken, setUnauthorizedHandler } from './lib/api';
-import { LoginPage } from './pages/LoginPage';
-import { RegisterPage } from './pages/RegisterPage';
-import { AdminPage } from './pages/AdminPage';
-import { ChatLayout } from './pages/ChatLayout';
-import { SettingsPage } from './pages/SettingsPage';
-import { SearchPage } from './pages/SearchPage';
-import { BookmarksPage } from './pages/BookmarksPage';
-import { VerifyEmailPage } from './pages/VerifyEmailPage';
-import { ResetPasswordPage } from './pages/ResetPasswordPage';
-import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { LoginPage } from './legacy-pages/LoginPage';
+import { RegisterPage } from './legacy-pages/RegisterPage';
+import { AdminPage } from './legacy-pages/AdminPage';
+import { ChatLayout } from './legacy-pages/ChatLayout';
+import { SettingsPage } from './legacy-pages/SettingsPage';
+import { SearchPage } from './legacy-pages/SearchPage';
+import { BookmarksPage } from './legacy-pages/BookmarksPage';
+import { VerifyEmailPage } from './legacy-pages/VerifyEmailPage';
+import { ResetPasswordPage } from './legacy-pages/ResetPasswordPage';
+import { ForgotPasswordPage } from './legacy-pages/ForgotPasswordPage';
 
 function RequireAuth() {
   const location = useLocation();
